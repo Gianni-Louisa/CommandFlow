@@ -42,12 +42,10 @@ def process_voice_command(command):
                 status_label.after(0, lambda: status_label.config(text="Moving mouse to top right"))
                 screen_width, _ = pyautogui.size()
                 pyautogui.moveTo(screen_width - 1, 0, duration=0.5)
-                pyautogui.click()
             else:
                 status_label.after(0, lambda: status_label.config(text="Moving mouse to default icon position"))
                 icon_x, icon_y = 200, 200
                 pyautogui.moveTo(icon_x, icon_y, duration=0.5)
-                pyautogui.click()
     except Exception as e:
         print(f"Error in command processing: {e}")
         status_label.after(0, lambda: status_label.config(text=f"Command error: {str(e)}"))
