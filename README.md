@@ -3,6 +3,5 @@ CommandFlow is an AI-powered assistant that lets you control your computer using
 
 
 ## Resources 
----
 
 [Reference guide for OpenAI API](https://arize.com/blog-course/mastering-openai-api-tips-and-tricks/)
