@@ -94,17 +94,17 @@ def save_and_process_audio(audio_data):
         text = " ".join([segment.text for segment in segments])
         if text.strip():
             print(f"Recognized text: {text}")
-            status_label.after(0, lambda: status_label.config(text=f"You said: {text}"))
+            recorded_label.after(0, lambda: recorded_label.config(text=f"You said: \"{text.lstrip()}\""))
             process_voice_command(text)
         else:
             print("No speech detected")
-            status_label.after(0, lambda: status_label.config(text="No speech detected"))
+            recorded_label.after(0, lambda: recorded_label.config(text="No speech detected"))
 
         os.unlink(temp_filename)
 
     except Exception as e:
         print(f"Error in audio processing: {e}")
-        status_label.after(0, lambda: status_label.config(text=f"Processing error: {str(e)}"))
+        recorded_label.after(0, lambda: recorded_label.config(text=f"Processing error: {str(e)}"))
 
 
 class AudioProcessor:
@@ -162,14 +162,15 @@ class AudioProcessor:
 
         except Exception as e:
             print(f"Error in audio recording: {e}")
-            status_label.after(0, lambda: status_label.config(text=f"Recording error: {str(e)}"))
+            recorded_label.after(0, lambda: recorded_label.config(text=f"Recording error: {str(e)}"))
 
 
 def toggle_record():
     if not listening_event.is_set():
         try:
             listening_event.set()
-            status_label.config(text="Listening... (Speak now)")
+            status_label.config(text="Speak your command")
+            recorded_label.config(text="Listening...")
             record_button.config(text="Stop Recording")
             audio_processor = AudioProcessor()
             recording_thread = threading.Thread(target=audio_processor.process_audio, daemon=True)
@@ -179,23 +180,32 @@ def toggle_record():
             print(f"Error starting recording: {e}")
             status_label.config(text=f"Error: {str(e)}")
             record_button.config(text="Record")
+            recorded_label.config(text="")
             listening_event.clear()
     else:
         listening_event.clear()
+        status_label.config(text="Press the microphone button and speak")
         record_button.config(text="Record")
-        status_label.config(text="Stopped listening")
+        recorded_label.config(text="Stopped listening")
         print("Stopped listening")
 
 
 # Set up the main Tkinter window
 root = tk.Tk()
-root.title("Voice to Text Demo")
-root.geometry("400x200")
+root.title("CommandFlow")
+root.geometry("480x270")
 
-status_label = tk.Label(root, text="Press the button and speak.", wraplength=300)
+# Create label for current recording status
+status_label = tk.Label(root, text="Press the microphone button and speak", wraplength=300, foreground="black")
 status_label.pack(pady=20)
 
-record_button = tk.Button(root, text="Record", command=toggle_record)
+# Create button to begin/end recording
+mic_image = tk.PhotoImage(file="mic-icon.png").subsample(2,2)   # Get mic image, scale down by 2x
+record_button = tk.Button(root, text="Record", image=mic_image, border=0, command=toggle_record)
 record_button.pack()
+
+# Create label to write back detected voice input
+recorded_label = tk.Label(root, text="", wraplength=300, foreground="#666666")
+recorded_label.pack(pady=20)
 
 root.mainloop()
