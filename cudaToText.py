@@ -25,10 +25,10 @@ listening_event = threading.Event()
 
 executor = ThreadPoolExecutor(max_workers=4)
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "cpu" # Use GPU if available, otherwise use CPU **ONLY NVIDIA GPU**
 
 print("Loading Whisper model...")
-model = WhisperModel("small.en", device=device, compute_type="int8")
+model = WhisperModel("small.en", device=device, compute_type="int8") 
 print("Model loaded!")
 
 
