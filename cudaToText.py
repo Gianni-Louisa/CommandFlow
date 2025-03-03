@@ -9,6 +9,7 @@ Description: Program to listen for audio input and handle commands
 
 Revision History:
 - 2/14/2025: Initial creation of script
+- 3/2/2025 (Ethan Dirkes): Added image to record button and label to display detected speech
 - 3/2/2025: Commented code
 
 Preconditions:
