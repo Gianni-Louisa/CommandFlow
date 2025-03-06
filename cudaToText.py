@@ -189,7 +189,7 @@ class AudioProcessor:
         """
         process_audio: Main class method to process the audio
         """
-        CHUNK = 4096 # Size of each audio chunk in samples
+        CHUNK = 8192 # Size of each audio chunk in samples
         MAX_SILENCE_CHUNKS = 8 # Number of silent chunks to wait before processing (determines pause length)# Number of silent chunks to wait before processing (determines pause length)
 
         try:
@@ -209,7 +209,7 @@ class AudioProcessor:
                 while listening_event.is_set():
                     # Get the next audio chunk from the queue (with timeout to prevent blocking)
                     try:
-                        current_audio = self.audio_queue.get(timeout=0.05)
+                        current_audio = self.audio_queue.get(timeout=0.15)
                     except queue.Empty: # If queue is empty, try again
                         continue
 
