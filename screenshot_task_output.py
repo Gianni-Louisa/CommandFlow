@@ -152,6 +152,9 @@ class ScreenPrompter:
         # Load original image
         img = cv2.imread(img_path)  # Read image from file
 
+        # Load example grid image for coordinate reference
+        example_img = cv2.imread("imgs/example_screenshot.jpg")
+
         # Create grid overlay image
         grid_img = self.overlayGridOnImg(img)  # Generate grid-annotated image
 
@@ -163,16 +166,21 @@ class ScreenPrompter:
         # Convert images to base64
         b64_original = self.convImgToB64(img)  # Encode original image
         b64_grid = self.convImgToB64(grid_img)  # Encode grid image
+        b64_example = self.convImgToB64(example_img)  # Encode example image
 
-        # Send request to OpenAI model with deterministic settings
+        # Send request to OpenAI model with maximum deterministic settings
         response = self.client.chat.completions.create(
             model=self.model,
-            temperature=0.0,  # Maximum determinism
+            temperature=0.0,  # Minimum temperature for maximum determinism
             top_p=1.0,  # Use full token distribution
-            seed=42,  # Reproducibility seed
-            max_tokens=1024,  # Response token limit
+            seed=42,  # Fixed seed for reproducibility
+            max_completion_tokens=1500,  # Use max_completion_tokens instead of max_tokens
             n=1,  # Single completion
             stream=False,  # Disable response streaming
+            frequency_penalty=0.0,  # No frequency penalty
+            presence_penalty=0.0,  # No presence penalty
+            logit_bias={},  # No logit bias
+            response_format={"type": "text"},  # Explicit text format
 
             messages=[
                 {
@@ -180,9 +188,10 @@ class ScreenPrompter:
                     "content": """
                     You are an assistant that helps users control their computer by generating commands based on screenshots.
 
-                    You will be provided with two screenshots:
-                    1. The original screenshot without any overlay
-                    2. The same screenshot with a numbered grid overlay
+                    You will be provided with:
+                    1. An example screenshot showing grid coordinates
+                    2. The original screenshot without any overlay
+                    3. The same screenshot with a numbered grid overlay
 
                     Use the grid overlay to determine precise coordinates, but refer to the original screenshot for visual clarity.
 
@@ -191,19 +200,41 @@ class ScreenPrompter:
 
                     Available commands:
                     1. MOVE_MOUSE(row, col) - Move the mouse to the specified grid coordinates
-                       - Coordinates should be specified with 1 decimal place precision (e.g., 5.2, 10.7)
+                       - Coordinates should be specified with 2 decimal places precision (e.g., 5.25, 10.75)
                        - This allows for more precise positioning within grid cells
                     2. CLICK(type) - Click at the current mouse position. Type can be "left" or "right"
                     3. TYPE(text) - Type the specified text
-                    4. SCREENSHOT() - Take a new screenshot to see the updated screen state
+                    4. PRESS_KEY(key) - Press a specific keyboard key or keyboard shortcut
+                       - For single keys: "enter", "escape", "tab", "delete", "backspace", "space"
+                       - For keyboard shortcuts, use "+" between keys: "ctrl+w", "alt+f4", "ctrl+shift+t"
+                       - For a sequence of key presses, use separate PRESS_KEY commands for each
+                       - Examples:
+                         * PRESS_KEY(ctrl+w)  # Close a browser tab
+                         * PRESS_KEY(alt+f4)  # Close an application
+                         * PRESS_KEY(ctrl+c)  # Copy
+                         * PRESS_KEY(ctrl+v)  # Paste
+                    5. SCREENSHOT() - Take a new screenshot to see the updated screen state
 
-                    Your response should be a JSON-formatted list of commands in the exact order they should be executed. For example:
-                    [
-                        "MOVE_MOUSE(5.3, 10.7)",
-                        "CLICK(left)",
-                        "TYPE(Hello world)",
-                        "SCREENSHOT()"
-                    ]
+                    IMPORTANT: Keyboard shortcuts are often the most efficient way to complete tasks. Consider using them when appropriate.
+
+                    Your response should have two sections:
+
+                    1. REASONING:
+                       - Analyze what you see in the screenshot
+                       - Identify UI elements relevant to the task
+                       - Consider different approaches to complete the task (including keyboard shortcuts)
+                       - Explain why you chose specific coordinates or keyboard shortcuts
+                       - Describe what each element looks like and where it's located
+
+                    2. COMMANDS:
+                       A JSON-formatted list of commands in the exact order they should be executed. For example:
+                       [
+                           "MOVE_MOUSE(5.25, 10.75)",
+                           "CLICK(left)",
+                           "TYPE(Hello world)",
+                           "PRESS_KEY(enter)",
+                           "SCREENSHOT()"
+                       ]
 
                     Be precise with coordinates, using the numbered grid on the screenshot. Row numbers (Y-axis) start from 0 at the top, and column numbers (X-axis) start from 0 at the left.
 
@@ -215,7 +246,15 @@ class ScreenPrompter:
                     "content": [
                         {
                             "type": "text",
-                            "text": f"Please provide the commands needed to close the Trello tab in this browser window: {prompt}\n\nI'm providing two images: the original screenshot and the same screenshot with a grid overlay for coordinate reference."
+                            "text": "Here's an example screenshot showing grid coordinates. It has a red dot at position (23.25, 13.75) and a blue X at position (26.80, 1.65). Use this as a reference for understanding how coordinates map to positions on the grid."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{b64_example}"}
+                        },
+                        {
+                            "type": "text",
+                            "text": f"Please provide the commands needed to complete this task: {prompt}\n\nI'm providing two images: the original screenshot and the same screenshot with a grid overlay for coordinate reference. First, reason through the different ways to complete this task, identify the relevant UI elements, and explain your approach. Then provide the specific commands."
                         },
                         {
                             "type": "image_url",
@@ -237,7 +276,7 @@ class ScreenPrompter:
 if __name__ == '__main__':
     # Configuration parameters
     IMG_PATH = "imgs/test_screenshot.png"  # Path to test screenshot
-    IMG_PROMPT = "Close the Trello tab"  # Task description
+    IMG_PROMPT = "Open Spotify"  # Close the current tab then open a gmail tab.
     API_KEY = ""  # OpenAI API key
 
     # Initialize and run ScreenPrompter
