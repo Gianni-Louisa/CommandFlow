@@ -148,7 +148,8 @@ def save_and_process_audio(audio_data):
         if text.strip():
             print(f"Recognized text: {text}")
             # Update UI with recognized text (thread-safe using after)
-            recorded_label.after(0, lambda: recorded_label.config(text=f"You said: \"{text.lstrip()}\""))
+            text_input.delete("1.0", tk.END)
+            text_input.insert("1.0", text)
             # Get context to determine if this is likely a false positive
             context = get_context_for_speech_command(text)
 
@@ -160,7 +161,8 @@ def save_and_process_audio(audio_data):
         # If no text was recognized
         else:
             print("No speech detected")
-            recorded_label.after(0, lambda: recorded_label.config(text="No speech detected")) # display an error message
+            text_input.delete("1.0", tk.END)
+            text_input.insert("1.0", "No speech detected") # display an error message
 
         # Clean up temporary file
         os.unlink(temp_filename)
@@ -168,7 +170,8 @@ def save_and_process_audio(audio_data):
     # Handle error by displaying info
     except Exception as e:
         print(f"Error in audio processing: {e}")
-        recorded_label.after(0, lambda: recorded_label.config(text=f"Processing error: {str(e)}"))
+        text_input.delete("1.0", tk.END)
+        text_input.insert("1.0", f"Processing error: {str(e)}")
 
 
 class AudioProcessor:
@@ -253,7 +256,8 @@ class AudioProcessor:
         except Exception as e:
             print(f"Error in audio recording: {e}")
             # Update UI with error message (thread-safe)
-            recorded_label.after(0, lambda: recorded_label.config(text=f"Recording error: {str(e)}"))
+            text_input.delete("1.0", tk.END)
+            text_input.insert("1.0", f"Recording error: {str(e)}")
 
 
 def toggle_record():
@@ -285,7 +289,8 @@ def toggle_record():
         listening_event.clear() # Clear the event to stop audio processing
         # Update UI to show stopped state
         status_label.config(text="Press button and speak")
-        recorded_label.config(text="Stopped listening")
+        text_input.delete("1.0", tk.END)
+        text_input.insert("1.0", "Stopped listening")
         print("Stopped listening")
 
 
@@ -355,11 +360,46 @@ separator.pack(fill=tk.X)
 transcript_content = tk.Frame(transcript_frame, bg="#1a2332", padx=25, pady=25)
 transcript_content.pack(fill=tk.BOTH, expand=True)
 
-# Clean, modern label for recognized text - light text on dark background
-recorded_label = tk.Label(transcript_content, text="Waiting for input...", 
-                         wraplength=450, fg="#b3c0d1", bg="#1a2332", 
-                         font=("Segoe UI", 12), justify=tk.LEFT, anchor=tk.NW)
-recorded_label.pack(fill=tk.BOTH, expand=True)
+# Replace the label with a typable Text widget
+text_input = tk.Text(transcript_content, 
+                   wrap=tk.WORD,
+                   fg="#b3c0d1", 
+                   bg="#1a2332",
+                   font=("Segoe UI", 12),
+                   bd=0,  # No border
+                   padx=0,
+                   pady=0,
+                   insertbackground="#ffffff",  # White cursor
+                   selectbackground="#3a4555",  # Selection background
+                   selectforeground="#ffffff",  # Selection text color
+                   highlightthickness=0)  # No focus highlight
+text_input.pack(fill=tk.BOTH, expand=True)
+text_input.insert("1.0", "Type or speak your command here...")
+
+# Add focus in/out effects for better UX
+def on_focus_in(event):
+    if text_input.get("1.0", "end-1c") == "Type or speak your command here...":
+        text_input.delete("1.0", tk.END)
+        
+def on_focus_out(event):
+    if text_input.get("1.0", "end-1c").strip() == "":
+        text_input.insert("1.0", "Type or speak your command here...")
+
+text_input.bind("<FocusIn>", on_focus_in)
+text_input.bind("<FocusOut>", on_focus_out)
+
+# Optional: Add a function to process typed commands when user presses Enter
+def process_typed_command(event):
+    command = text_input.get("1.0", "end-1c").strip()
+    if command and command != "Type or speak your command here...":
+        # Process the command (same logic as for spoken commands)
+        # This can call the same function that processes recognized speech
+        process_voice_command(command)
+        # Optionally clear the input after processing
+        text_input.delete("1.0", tk.END)
+    return "break"  # Prevents default Enter behavior
+
+text_input.bind("<Return>", process_typed_command)
 
 # Get the snapshot of ALL open windows
 snapshot = get_window_snapshot()
