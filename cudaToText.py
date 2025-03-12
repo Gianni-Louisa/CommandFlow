@@ -33,6 +33,7 @@ from scipy.io import wavfile
 import queue
 from concurrent.futures import ThreadPoolExecutor
 import torch
+from window_detection import get_window_snapshot, get_context_for_speech_command
 
 try:
     # Try to import pyautogui for mouse control functionality
@@ -148,8 +149,14 @@ def save_and_process_audio(audio_data):
             print(f"Recognized text: {text}")
             # Update UI with recognized text (thread-safe using after)
             recorded_label.after(0, lambda: recorded_label.config(text=f"You said: \"{text.lstrip()}\""))
-            # Process any commands in the recognized text
-            process_voice_command(text)
+            # Get context to determine if this is likely a false positive
+            context = get_context_for_speech_command(text)
+
+            if context.get("likely_false_positive"):
+                print(f"Ignoring likely false recognition: {text}")
+            else:
+                # Process as normal command
+                process_voice_command(text)
         # If no text was recognized
         else:
             print("No speech detected")
@@ -258,9 +265,7 @@ def toggle_record():
             listening_event.set() # Start listening
             
             # Update UI to show listening state
-            status_label.config(text="Speak your command") 
-            recorded_label.config(text="Listening...")
-            record_button.config(text="Stop Recording")
+      
 
             # Create and start the audio processing in a background thread
             audio_processor = AudioProcessor()
@@ -274,36 +279,100 @@ def toggle_record():
         except Exception as e:
             print(f"Error starting recording: {e}")
             status_label.config(text=f"Error: {str(e)}")
-            record_button.config(text="Record")
-            recorded_label.config(text="")
             listening_event.clear()
     else:
         # Stop listening
         listening_event.clear() # Clear the event to stop audio processing
         # Update UI to show stopped state
-        status_label.config(text="Press the microphone button and speak")
-        record_button.config(text="Record")
+        status_label.config(text="Press button and speak")
         recorded_label.config(text="Stopped listening")
         print("Stopped listening")
 
 
 # Set up the main Tkinter window
 root = tk.Tk()
-root.title("CommandFlow") # Set application title
-root.geometry("480x270") # Set window size
+root.title("CommandFlow")
+root.geometry("800x500")  # Larger size for better proportions
+root.configure(bg="#212a38")  # Blue background for the root
 
-# Create label for current recording status
-status_label = tk.Label(root, text="Press the microphone button and speak", wraplength=300, foreground="black")
-status_label.pack(pady=20) # Add padding for spacing
+# Create main container with padding
+main_container = tk.Frame(root, bg="#212a38", padx=0, pady=0)
+main_container.pack(fill=tk.BOTH, expand=True)
 
-# Create button to begin/end recording
-mic_image = tk.PhotoImage(file="mic-icon.png").subsample(2,2)   # Get mic image, scale down by 2x
-record_button = tk.Button(root, text="Record", image=mic_image, border=0, command=toggle_record)
-record_button.pack()
+# Create sidebar frame - now white to match with photo background
+sidebar = tk.Frame(main_container, width=340, bg="#ffffff", padx=0, pady=0)
+sidebar.pack(side=tk.LEFT, fill=tk.Y)
+sidebar.pack_propagate(False)  # Prevent the sidebar from shrinking
 
-# Create label to write back detected voice input
-recorded_label = tk.Label(root, text="", wraplength=300, foreground="#666666")
-recorded_label.pack(pady=20)
+# Add padding container inside sidebar for content
+sidebar_content = tk.Frame(sidebar, bg="#ffffff", padx=25, pady=30)
+sidebar_content.pack(fill=tk.BOTH, expand=True)
 
+# Create app title with modern typography (now dark text on white background)
+app_title = tk.Label(sidebar_content, text="CommandFlow", font=("Segoe UI", 22, "bold"), 
+                    bg="#ffffff", fg="#212a38")
+app_title.pack(anchor=tk.W, pady=(0, 40))
+
+# Load and display mic image directly without restrictions
+mic_image = tk.PhotoImage(file="mic-icon.png")
+record_button = tk.Button(sidebar_content, image=mic_image, text="", 
+                         compound=tk.CENTER, bd=0, bg="#ffffff", 
+                         activebackground="#ffffff", command=toggle_record,
+                         cursor="hand2", highlightthickness=0)
+record_button.pack(pady=(0, 30))
+
+# Status text with updated styling (dark text on white background)
+status_label = tk.Label(sidebar_content, text="Press to speak",
+                       font=("Segoe UI", 12), bg="#ffffff", fg="#4a5568")
+status_label.pack(pady=(0, 20))
+
+# Create main content area - now blue
+content_area = tk.Frame(main_container, bg="#212a38", padx=40, pady=40)
+content_area.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+# Add minimalist title to content area (white text on blue background)
+content_title = tk.Label(content_area, text="Voice Recognition", 
+                        font=("Segoe UI", 18, "bold"), bg="#212a38", fg="#ffffff")
+content_title.pack(anchor=tk.W, pady=(0, 30))
+
+# Create a darker blue frame for the transcription
+transcript_frame = tk.Frame(content_area, bg="#1a2332", bd=0)
+transcript_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+
+# Add transcript header with updated styling
+transcript_header = tk.Frame(transcript_frame, bg="#1a2332", padx=25, pady=20)
+transcript_header.pack(fill=tk.X)
+
+transcript_title = tk.Label(transcript_header, text="Transcription", 
+                          font=("Segoe UI", 14), bg="#1a2332", fg="#ffffff")
+transcript_title.pack(anchor=tk.W)
+
+# Subtle separator - slightly lighter blue
+separator = tk.Frame(transcript_frame, height=1, bg="#2c3445")
+separator.pack(fill=tk.X)
+
+# Transcript content area with better spacing
+transcript_content = tk.Frame(transcript_frame, bg="#1a2332", padx=25, pady=25)
+transcript_content.pack(fill=tk.BOTH, expand=True)
+
+# Clean, modern label for recognized text - light text on dark background
+recorded_label = tk.Label(transcript_content, text="Waiting for input...", 
+                         wraplength=450, fg="#b3c0d1", bg="#1a2332", 
+                         font=("Segoe UI", 12), justify=tk.LEFT, anchor=tk.NW)
+recorded_label.pack(fill=tk.BOTH, expand=True)
+
+# Get the snapshot of ALL open windows
+snapshot = get_window_snapshot()
+
+# Access the complete list of ALL windows
+all_open_windows = snapshot["all_windows"]  
+
+# Print all window titles
+for window in all_open_windows:
+    print(f"Window: {window.get('title')} - Application: {window.get('app_name')}")
+
+# Use the information
+active_app = snapshot["active_window"]["app_name"]
+print(f"You're currently using: {active_app}")
 # Start the main application loop
 root.mainloop()
