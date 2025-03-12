@@ -314,7 +314,7 @@ app_title = tk.Label(sidebar_content, text="CommandFlow", font=("Segoe UI", 22, 
 app_title.pack(anchor=tk.W, pady=(0, 40))
 
 # Load and display mic image directly without restrictions
-mic_image = tk.PhotoImage(file="mic-icon.png")
+mic_image = tk.PhotoImage(file="GUI Resources/mic-icon.png")
 record_button = tk.Button(sidebar_content, image=mic_image, text="", 
                          compound=tk.CENTER, bd=0, bg="#ffffff", 
                          activebackground="#ffffff", command=toggle_record,
