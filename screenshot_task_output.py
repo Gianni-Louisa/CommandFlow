@@ -40,6 +40,7 @@ import numpy as np  # Numerical operations
 import time  # Time-related functions
 import os  # Operating system interactions
 
+
 class ScreenPrompter:
     def __init__(self, api_key: str = None, model: str = "gpt-4o-2024-08-06"):
         """
@@ -272,12 +273,17 @@ class ScreenPrompter:
         # Print model's response
         print(response.choices[0].message.content)
 
+
 # Main execution block
 if __name__ == '__main__':
     # Configuration parameters
     IMG_PATH = "imgs/test_screenshot.png"  # Path to test screenshot
     IMG_PROMPT = "Open Spotify"  # Close the current tab then open a gmail tab.
-    API_KEY = ""  # OpenAI API key
+    # "Close the current tab then open a gmail tab." "Open Spotify"
+
+    # Read API key from file
+    with open("api_key.txt", "r") as f:
+        API_KEY = f.read().strip()
 
     # Initialize and run ScreenPrompter
     screenPrompter = ScreenPrompter(API_KEY)  # Create instance with API key
