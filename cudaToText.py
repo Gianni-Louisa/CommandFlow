@@ -1,5 +1,5 @@
 """
-
+# This is the module docstring that provides overall information about the file
 Code Artifact: cudaToText.py
 Description: Program to listen for audio input and handle commands
 
@@ -11,6 +11,7 @@ Revision History:
 - 2/14/2025: Initial creation of script
 - 3/2/2025 (Ethan Dirkes): Added image to record button and label to display detected speech
 - 3/2/2025: Commented code
+- 3/12/2025: Adjusted GUI and adjusted model
 
 Preconditions:
 - OpenAI's whisper library must be installed
@@ -22,397 +23,335 @@ Postconditions:
 
 """
 
-import tkinter as tk
-from faster_whisper import WhisperModel
-import sounddevice as sd
-import numpy as np
-import threading
-import tempfile
-import os
-from scipy.io import wavfile
-import queue
-from concurrent.futures import ThreadPoolExecutor
-import torch
-from window_detection import get_window_snapshot, get_context_for_speech_command
+import tkinter as tk  # Import Tkinter library for creating GUI elements and windows
+from faster_whisper import WhisperModel  # Import WhisperModel class from faster_whisper for speech recognition
+import sounddevice as sd  # Import sounddevice for audio recording and playback
+import numpy as np  # Import numpy for numerical operations and array handling
+import threading  # Import threading module to handle concurrent execution
+import tempfile  # Import tempfile module to create temporary files
+import os  # Import os module for operating system dependent functionality
+from scipy.io import wavfile  # Import wavfile module from scipy.io for reading and writing WAV files
+import queue  # Import queue for thread-safe data exchange
+from concurrent.futures import ThreadPoolExecutor  # Import ThreadPoolExecutor for managing thread pools for background tasks
+import torch  # Import PyTorch to check for CUDA availability and GPU support
+from window_detection import get_window_snapshot, get_context_for_speech_command  # Import custom functions for window detection and context analysis
 
 try:
-    # Try to import pyautogui for mouse control functionality
-    import pyautogui
+    import pyautogui  # Try to import pyautogui module for mouse and keyboard control
     pyautogui.FAILSAFE = False  # Disable the failsafe feature that stops mouse movement when cursor hits screen corner
 except ImportError:
-    # Handle the case where pyautogui is not installed
-    print("PyAutoGUI not available - mouse control features disabled")
-    pyautogui = None
+    print("PyAutoGUI not available - mouse control features disabled")  # Print a message indicating mouse control features are disabled
+    pyautogui = None  # Set pyautogui to None so we can check if it's available later
 
-# Global configuration and constants
-SILENCE_THRESHOLD = 500 # Energy threshold to determine when speech is occurring
-SAMPLE_RATE = 48000 # Audio sampling rate in Hz
+SILENCE_THRESHOLD = 500  # Define the energy threshold to determine when speech is occurring
+SAMPLE_RATE = 48000  # Define the audio sampling rate in Hz (48kHz is high quality audio)
 
-# Threading event to control when the app is actively listening
-listening_event = threading.Event()
+listening_event = threading.Event()  # Create a threading event to control when the app is actively listening
 
-# Create a thread pool to handle background processing tasks
-executor = ThreadPoolExecutor(max_workers=4)
+executor = ThreadPoolExecutor(max_workers=4)  # Create a thread pool with 4 workers to handle background processing tasks
 
-# Determine whether to use GPU or CPU for processing
-device = "cuda" if torch.cuda.is_available() else "cpu" # Use GPU if available, otherwise use CPU **ONLY NVIDIA GPU**
+device = "cuda" if torch.cuda.is_available() else "cpu"  # Determine whether to use GPU or CPU for processing based on CUDA availability
 
-# Initialize the speech recognition model, using English small model with int8 quantization
-print("Loading Whisper model...")
-model = WhisperModel("small.en", device=device, compute_type="int8") 
-print("Model loaded!")
+print("Loading Whisper model...")  # Print a message indicating that the Whisper model is being loaded
+model = WhisperModel("small.en", device=device, compute_type="int8")  # Initialize the Whisper speech recognition model with English language, small size, and int8 quantization
+print("Model loaded!")  # Print a message indicating that the model has been loaded successfully
 
 
 def preprocess_audio(audio_data, sample_rate=16000):
     """
+    # Function docstring describing what preprocess_audio does
     proprocess_audio: Function to process audio so it is more clear
     """
     try:
-        # Convert from int16 to float32 and normalize to [-1, 1]
-        audio_float = audio_data.astype(np.float32) / 32768.0
-        audio_float *= 2 # Amplify the signal
-        np.clip(audio_float, -1.0, 1.0, out=audio_float) # Clip to avoid distortion
-        # Convert back to int16 format
-        audio_processed = (audio_float * 32767).astype(np.int16)
-        return audio_processed
+        audio_float = audio_data.astype(np.float32) / 32768.0  # Convert the audio data from int16 to float32 and normalize to range [-1, 1]
+        audio_float *= 2  # Amplify the signal by multiplying by 2
+        np.clip(audio_float, -1.0, 1.0, out=audio_float)  # Clip values to prevent distortion, keeping them in range [-1, 1]
+        audio_processed = (audio_float * 32767).astype(np.int16)  # Convert the audio back to int16 format for compatibility
+        return audio_processed  # Return the processed audio data
     except Exception as e:
-        print(f"Error in audio preprocessing: {e}")
-        return audio_data # Return original data if processing fails
+        print(f"Error in audio preprocessing: {e}")  # Print error message if any exception occurs during preprocessing
+        return audio_data  # Return the original audio data if processing fails
 
 
 def process_voice_command(command):
     """
+    # Function docstring describing what process_voice_command does
     process_voice_command(): Function to perform the command that was heard by the audio listener
     """
-    command = command.lower().strip() # Normalize command to lowercase and remove whitespace
-    print(f"Processing command: {command}")
-    # Define command categories for easier matching
-    move_mouse_commands = ["move mouse", "move the mouse"]
-    exit_commands = ["exit window", "close window"]
+    command = command.lower().strip()  # Normalize the command by converting to lowercase and removing whitespace
+    print(f"Processing command: {command}")  # Print the command being processed for debugging
+    move_mouse_commands = ["move mouse", "move the mouse"]  # Define list of commands related to mouse movement for easier matching
+    exit_commands = ["exit window", "close window"]  # Define list of commands related to closing windows for easier matching
 
     try:
-        # Hadle mouse movement commands
-        if any(cmd in command for cmd in move_mouse_commands):
-            if "top right" in command:
-                # Move mouse to top-right corner of screen
-                status_label.after(0, lambda: status_label.config(text="Moving mouse to top right"))
-                screen_width, _ = pyautogui.size() # Get screen dimensions
-                pyautogui.moveTo(screen_width - 1, 0, duration=0.5) # Move with animation over 0.5 seconds
-                return True
+        if any(cmd in command for cmd in move_mouse_commands):  # Check if any of the mouse movement commands are in the recognized text
+            if "top right" in command:  # Check if "top right" is specified in the command
+                status_label.after(0, lambda: status_label.config(text="Moving mouse to top right"))  # Use tkinter's after method to update status label safely from another thread
+                screen_width, _ = pyautogui.size()  # Get the screen width and height (only using width here)
+                pyautogui.moveTo(screen_width - 1, 0, duration=0.5)  # Move the mouse to the top-right corner of the screen over 0.5 seconds
+                return True  # Return True to indicate command was handled
             else:
-                # Move mouse to default position if no specific location mentioned
-                status_label.after(0, lambda: status_label.config(text="Moving mouse to default icon position"))
-                icon_x, icon_y = 200, 200 # Default position coordinates
-                pyautogui.moveTo(icon_x, icon_y, duration=0.5) # Move with animation over 0.5 seconds
-                return True
+                status_label.after(0, lambda: status_label.config(text="Moving mouse to default icon position"))  # If no specific location mentioned, move to default position
+                icon_x, icon_y = 200, 200  # Define default position coordinates
+                pyautogui.moveTo(icon_x, icon_y, duration=0.5)  # Move the mouse to the default position over 0.5 seconds
+                return True  # Return True to indicate command was handled
 
-        # Handle window closing commands
-        if any(cmd in command for cmd in exit_commands):
-            status_label.after(0, lambda: status_label.config(text="Exiting current window"))
-            pyautogui.hotkey("alt", "f4") # Simulate Alt+F4 keyboard shortcut
-            return True
+        if any(cmd in command for cmd in exit_commands):  # Check if any window closing commands are in the recognized text
+            status_label.after(0, lambda: status_label.config(text="Exiting current window"))  # Update status label to show we're exiting the window
+            pyautogui.hotkey("alt", "f4")  # Simulate Alt+F4 keyboard shortcut to close the active window
+            return True  # Return True to indicate command was handled
 
-        return False
+        return False  # Return False if no matching command was found
 
-    # If there is an error, display info about it
     except Exception as e:
-        print(f"Error in command processing: {e}")
-        status_label.after(0, lambda: status_label.config(text=f"Command error: {str(e)}"))
-        return False
+        print(f"Error in command processing: {e}")  # Print error message if any exception occurs during command processing
+        status_label.after(0, lambda: status_label.config(text=f"Command error: {str(e)}"))  # Update status label to show the error
+        return False  # Return False to indicate command handling failed
 
 
 def save_and_process_audio(audio_data):
     """
+    # Function docstring describing what save_and_process_audio does
     save_and_process_audio(): Function to save the audio to a wav file and then process it
     """
     try:
-        # Preprocess the audio for better recognition
-        processed_audio = preprocess_audio(audio_data)
-        # Create a temporary WAV file to store the audio
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_audio_file:
-            temp_filename = temp_audio_file.name
-            wavfile.write(temp_filename, SAMPLE_RATE, processed_audio)
+        processed_audio = preprocess_audio(audio_data)  # Preprocess the audio to enhance recognition quality
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_audio_file:  # Create a temporary WAV file with '.wav' extension that won't be immediately deleted
+            temp_filename = temp_audio_file.name  # Get the name of the temporary file
+            wavfile.write(temp_filename, SAMPLE_RATE, processed_audio)  # Write the processed audio data to the temporary file
 
-        # Transcribe the audio using the Whisper model
-        print("Processing audio with Whisper...")
-        segments, _ = model.transcribe(
-            temp_filename,
-            beam_size=5, # Beam search size for more accurate transcription
-            language="en", # Force English language
-            condition_on_previous_text=True, # Use context from previous segments
-            no_speech_threshold=0.3 # Threshold for filtering out non-speech
+        print("Processing audio with Whisper...")  # Print status message about audio processing
+        segments, _ = model.transcribe(  # Transcribe the audio using the Whisper model and get the segments and info
+            temp_filename,  # Path to the audio file
+            beam_size=5,  # Beam search size for more accurate transcription
+            language="en",  # Force English language for recognition
+            condition_on_previous_text=True,  # Use context from previous segments
+            no_speech_threshold=0.3  # Threshold for filtering out non-speech
         )
-        # Combine all segments into a single text
-        text = " ".join([segment.text for segment in segments])
-        # If text was recognized
-        if text.strip():
-            print(f"Recognized text: {text}")
-            # Update UI with recognized text (thread-safe using after)
-            text_input.delete("1.0", tk.END)
-            text_input.insert("1.0", text)
-            # Get context to determine if this is likely a false positive
-            context = get_context_for_speech_command(text)
+        text = " ".join([segment.text for segment in segments])  # Combine all segments into a single text string
+        if text.strip():  # Check if any text was recognized
+            print(f"Recognized text: {text}")  # Print the recognized text for debugging
+            text_input.delete("1.0", tk.END)  # Delete all text in the text input widget
+            text_input.insert("1.0", text)  # Insert the recognized text into the text input widget
+            context = get_context_for_speech_command(text)  # Get context to determine if this is likely a false positive
 
-            if context.get("likely_false_positive"):
-                print(f"Ignoring likely false recognition: {text}")
+            if context.get("likely_false_positive"):  # Check if the recognition is likely a false positive based on context
+                print(f"Ignoring likely false recognition: {text}")  # Log that we're ignoring a likely false recognition
             else:
-                # Process as normal command
-                process_voice_command(text)
-        # If no text was recognized
+                process_voice_command(text)  # Process the recognized text as a command
         else:
-            print("No speech detected")
-            text_input.delete("1.0", tk.END)
-            text_input.insert("1.0", "No speech detected") # display an error message
+            print("No speech detected")  # Log that no speech was detected
+            text_input.delete("1.0", tk.END)  # Clear the text input widget
+            text_input.insert("1.0", "No speech detected")  # Display "No speech detected" message in the text input widget
 
-        # Clean up temporary file
-        os.unlink(temp_filename)
+        os.unlink(temp_filename)  # Delete the temporary file to clean up
 
-    # Handle error by displaying info
     except Exception as e:
-        print(f"Error in audio processing: {e}")
-        text_input.delete("1.0", tk.END)
-        text_input.insert("1.0", f"Processing error: {str(e)}")
+        print(f"Error in audio processing: {e}")  # Print error message if any exception occurs during audio processing
+        text_input.delete("1.0", tk.END)  # Clear the text input widget
+        text_input.insert("1.0", f"Processing error: {str(e)}")  # Display the error message in the text input widget
 
 
 class AudioProcessor:
     """
+    # Class docstring describing what AudioProcessor does
     AudioProcessor: A class to process the user's command audio
     """
     def __init__(self):
-        self.audio_queue = queue.Queue() # Queue to store incoming audio chunks
-        self.audio_buffer = [] # Buffer to accumulate audio during speech
-        self.recording_active = False # Flag to track if speech is currently being recorded
-        self.silence_count = 0 # Counter to track consecutive silent chunks
-        self.energy_threshold = SILENCE_THRESHOLD # Threshold to distinguish speech from silence
+        self.audio_queue = queue.Queue()  # Initialize a queue to store incoming audio chunks
+        self.audio_buffer = []  # Initialize an empty list to accumulate audio during speech
+        self.recording_active = False  # Initialize flag to track if speech is currently being recorded
+        self.silence_count = 0  # Initialize counter to track consecutive silent chunks
+        self.energy_threshold = SILENCE_THRESHOLD  # Set energy threshold to distinguish speech from silence
 
     def audio_callback(self, indata, frames, time_info, status):
         """
+        # Method docstring describing what audio_callback does
         audio_callback: A callback method for the sounddevice InputStream
         """
-        if status:
-            print(f"Audio callback status: {status}") # Log any issues with audio input
-        # Only process audio if listening is enabled
-        if listening_event.is_set():
-            self.audio_queue.put(indata.copy().flatten()) # Flatten to 1D array and copy to queue
+        if status:  # Check if there's any status information to log
+            print(f"Audio callback status: {status}")  # Log any issues with audio input
+        if listening_event.is_set():  # Only process audio if listening is enabled
+            self.audio_queue.put(indata.copy().flatten())  # Flatten the input array to 1D, make a copy, and add to queue
 
     def process_audio(self):
         """
+        # Method docstring describing what process_audio does
         process_audio: Main class method to process the audio
         """
-        CHUNK = 8192 # Size of each audio chunk in samples
-        MAX_SILENCE_CHUNKS = 8 # Number of silent chunks to wait before processing (determines pause length)# Number of silent chunks to wait before processing (determines pause length)
+        CHUNK = 8192  # Define size of each audio chunk in samples
+        MAX_SILENCE_CHUNKS = 8  # Define number of silent chunks to wait before processing (determines pause length)
 
         try:
-            print("Starting audio stream...")
-            # Create and start the audio input stream
-            with sd.InputStream(
-                callback=self.audio_callback,
-                channels=1,
-                samplerate=SAMPLE_RATE,
-                blocksize=CHUNK,
-                dtype=np.int16,
-                latency='low' # Low latency for responsive detection
+            print("Starting audio stream...")  # Print status message about starting audio stream
+            with sd.InputStream(  # Create and start the audio input stream with specified parameters
+                callback=self.audio_callback,  # Set the callback function
+                channels=1,  # Record in mono
+                samplerate=SAMPLE_RATE,  # Set the sample rate
+                blocksize=CHUNK,  # Set the block size
+                dtype=np.int16,  # Use 16-bit integer samples
+                latency='low'  # Use low latency for responsive detection
             ) as stream: 
-                print("Audio stream started")
+                print("Audio stream started")  # Print status message that audio stream started
 
-                # Main processing loop
-                while listening_event.is_set():
-                    # Get the next audio chunk from the queue (with timeout to prevent blocking)
+                while listening_event.is_set():  # Main processing loop that runs while listening is enabled
                     try:
-                        current_audio = self.audio_queue.get(timeout=0.15)
-                    except queue.Empty: # If queue is empty, try again
-                        continue
+                        current_audio = self.audio_queue.get(timeout=0.15)  # Try to get the next audio chunk from the queue with a timeout to prevent blocking
+                    except queue.Empty:
+                        continue  # If queue is empty, skip this iteration and try again
 
-                    # Calculate audio energy (maximum absolute amplitude)
-                    energy = np.max(np.abs(current_audio))
+                    energy = np.max(np.abs(current_audio))  # Calculate audio energy (maximum absolute amplitude)
 
-                    # If energy exceeds threshold, we detected speech
-                    if energy > self.energy_threshold:
-                        if not self.recording_active:
-                            print("Speech detected!")
-                            self.recording_active = True # Start recording session
-                            self.silence_count = 0 # Reset silence counter
-                        self.audio_buffer.append(current_audio) # Add chunk to buffer
+                    if energy > self.energy_threshold:  # Check if energy exceeds threshold (speech detected)
+                        if not self.recording_active:  # Check if we're not already recording
+                            print("Speech detected!")  # Log that speech was detected
+                            self.recording_active = True  # Start recording session
+                            self.silence_count = 0  # Reset silence counter
+                        self.audio_buffer.append(current_audio)  # Add current audio chunk to buffer
 
-                    # If we're already recording but current chunk is silent
-                    elif self.recording_active:
-                        self.audio_buffer.append(current_audio) # Add silent chunk to buffer
-                        self.silence_count += 1 # Increment silence counter
+                    elif self.recording_active:  # If we're already recording but current chunk is silent
+                        self.audio_buffer.append(current_audio)  # Add silent chunk to buffer
+                        self.silence_count += 1  # Increment silence counter
                         
-                        # If enough consecutive silent chunks, process the complete utterance
-                        if self.silence_count >= MAX_SILENCE_CHUNKS:
-                            # Combine all buffered audio chunks
-                            complete_audio = np.concatenate(self.audio_buffer)
-                            print("Processing recorded audio...")
+                        if self.silence_count >= MAX_SILENCE_CHUNKS:  # Check if enough consecutive silent chunks to finish recording
+                            complete_audio = np.concatenate(self.audio_buffer)  # Combine all buffered audio chunks into one array
+                            print("Processing recorded audio...")  # Log that we're processing the recorded audio
 
-                            # Submit the processing task to the thread pool
-                            executor.submit(save_and_process_audio, complete_audio)
+                            executor.submit(save_and_process_audio, complete_audio)  # Submit the processing task to the thread pool
                             
-                            # Reset recording state
-                            self.audio_buffer = []
-                            self.recording_active = False
-                            self.silence_count = 0
+                            self.audio_buffer = []  # Reset audio buffer to empty list
+                            self.recording_active = False  # Set recording_active flag to False
+                            self.silence_count = 0  # Reset silence counter to 0
 
         except Exception as e:
-            print(f"Error in audio recording: {e}")
-            # Update UI with error message (thread-safe)
-            text_input.delete("1.0", tk.END)
-            text_input.insert("1.0", f"Recording error: {str(e)}")
+            print(f"Error in audio recording: {e}")  # Print error message if any exception occurs during audio recording
+            text_input.delete("1.0", tk.END)  # Clear the text input widget
+            text_input.insert("1.0", f"Recording error: {str(e)}")  # Display the error message in the text input widget
 
 
 def toggle_record():
     """
+    # Function docstring describing what toggle_record does
     toggle_record(): Function to turn audio recording off/on
     """
-    if not listening_event.is_set():
+    if not listening_event.is_set():  # Check if listening is not currently enabled
         try:
-            listening_event.set() # Start listening
+            listening_event.set()  # Enable listening by setting the event
             
-            # Update UI to show listening state
-      
+            audio_processor = AudioProcessor()  # Create an AudioProcessor instance
 
-            # Create and start the audio processing in a background thread
-            audio_processor = AudioProcessor()
+            recording_thread = threading.Thread(target=audio_processor.process_audio, daemon=True)  # Create a new thread for audio processing that will run in the background
+            recording_thread.start()  # Start the recording thread
+            print("Recording thread started")  # Log that recording thread started
 
-            # Start a new thread for audio processing
-            recording_thread = threading.Thread(target=audio_processor.process_audio, daemon=True) 
-            recording_thread.start()
-            print("Recording thread started")
-
-        # Handle errors  by logging to GUI
         except Exception as e:
-            print(f"Error starting recording: {e}")
-            status_label.config(text=f"Error: {str(e)}")
-            listening_event.clear()
+            print(f"Error starting recording: {e}")  # Print error message if any exception occurs when starting recording
+            status_label.config(text=f"Error: {str(e)}")  # Update status label with the error message
+            listening_event.clear()  # Clear the listening event to stop audio processing
     else:
-        # Stop listening
-        listening_event.clear() # Clear the event to stop audio processing
-        # Update UI to show stopped state
-        status_label.config(text="Press button and speak")
-        text_input.delete("1.0", tk.END)
-        text_input.insert("1.0", "Stopped listening")
-        print("Stopped listening")
+        listening_event.clear()  # Stop listening by clearing the event
+        status_label.config(text="Press button and speak")  # Update status label to show stopped state
+        text_input.delete("1.0", tk.END)  # Clear the text input widget
+        text_input.insert("1.0", "Stopped listening")  # Display "Stopped listening" message in the text input widget
+        print("Stopped listening")  # Log that listening stopped
 
 
-# Set up the main Tkinter window
-root = tk.Tk()
-root.title("CommandFlow")
-root.geometry("800x500")  # Larger size for better proportions
-root.configure(bg="#212a38")  # Blue background for the root
+root = tk.Tk()  # Create the main Tkinter window
+root.title("CommandFlow")  # Set the window title
+root.geometry("800x500")  # Set the window size
+root.configure(bg="#212a38")  # Set the background color to dark blue
 
-# Create main container with padding
-main_container = tk.Frame(root, bg="#212a38", padx=0, pady=0)
-main_container.pack(fill=tk.BOTH, expand=True)
+main_container = tk.Frame(root, bg="#212a38", padx=0, pady=0)  # Create main container frame with no padding
+main_container.pack(fill=tk.BOTH, expand=True)  # Pack the main container to fill the window
 
-# Create sidebar frame - now white to match with photo background
-sidebar = tk.Frame(main_container, width=340, bg="#ffffff", padx=0, pady=0)
-sidebar.pack(side=tk.LEFT, fill=tk.Y)
+sidebar = tk.Frame(main_container, width=340, bg="#ffffff", padx=0, pady=0)  # Create sidebar frame with white background
+sidebar.pack(side=tk.LEFT, fill=tk.Y)  # Pack the sidebar on the left side
 sidebar.pack_propagate(False)  # Prevent the sidebar from shrinking
 
-# Add padding container inside sidebar for content
-sidebar_content = tk.Frame(sidebar, bg="#ffffff", padx=25, pady=30)
-sidebar_content.pack(fill=tk.BOTH, expand=True)
+sidebar_content = tk.Frame(sidebar, bg="#ffffff", padx=25, pady=30)  # Add padding container inside sidebar for content
+sidebar_content.pack(fill=tk.BOTH, expand=True)  # Pack the sidebar content to fill the sidebar
 
-# Create app title with modern typography (now dark text on white background)
-app_title = tk.Label(sidebar_content, text="CommandFlow", font=("Segoe UI", 22, "bold"), 
+app_title = tk.Label(sidebar_content, text="CommandFlow", font=("Segoe UI", 22, "bold"),   # Create app title label with modern typography
                     bg="#ffffff", fg="#212a38")
-app_title.pack(anchor=tk.W, pady=(0, 40))
+app_title.pack(anchor=tk.W, pady=(0, 40))  # Pack the app title at the top of the sidebar with padding
 
-# Load and display mic image directly without restrictions
-mic_image = tk.PhotoImage(file="GUI Resources/mic-icon.png")
-record_button = tk.Button(sidebar_content, image=mic_image, text="", 
+mic_image = tk.PhotoImage(file="GUI Resources/mic-icon.png")  # Load microphone icon image
+record_button = tk.Button(sidebar_content, image=mic_image, text="",   # Create button with the microphone image
                          compound=tk.CENTER, bd=0, bg="#ffffff", 
                          activebackground="#ffffff", command=toggle_record,
                          cursor="hand2", highlightthickness=0)
-record_button.pack(pady=(0, 30))
+record_button.pack(pady=(0, 30))  # Pack the record button with padding
 
-# Status text with updated styling (dark text on white background)
-status_label = tk.Label(sidebar_content, text="Press to speak",
+status_label = tk.Label(sidebar_content, text="Press to speak",  # Create status label with instructions
                        font=("Segoe UI", 12), bg="#ffffff", fg="#4a5568")
-status_label.pack(pady=(0, 20))
+status_label.pack(pady=(0, 20))  # Pack the status label with padding
 
-# Create main content area - now blue
-content_area = tk.Frame(main_container, bg="#212a38", padx=40, pady=40)
-content_area.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+content_area = tk.Frame(main_container, bg="#212a38", padx=40, pady=40)  # Create main content area with blue background
+content_area.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)  # Pack the content area on the right side
 
-# Add minimalist title to content area (white text on blue background)
-content_title = tk.Label(content_area, text="Voice Recognition", 
+content_title = tk.Label(content_area, text="Voice Recognition",   # Add title to content area
                         font=("Segoe UI", 18, "bold"), bg="#212a38", fg="#ffffff")
-content_title.pack(anchor=tk.W, pady=(0, 30))
+content_title.pack(anchor=tk.W, pady=(0, 30))  # Pack the content title at the top of the content area with padding
 
-# Create a darker blue frame for the transcription
-transcript_frame = tk.Frame(content_area, bg="#1a2332", bd=0)
-transcript_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+transcript_frame = tk.Frame(content_area, bg="#1a2332", bd=0)  # Create a darker blue frame for the transcription
+transcript_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))  # Pack the transcript frame to fill the content area
 
-# Add transcript header with updated styling
-transcript_header = tk.Frame(transcript_frame, bg="#1a2332", padx=25, pady=20)
-transcript_header.pack(fill=tk.X)
+transcript_header = tk.Frame(transcript_frame, bg="#1a2332", padx=25, pady=20)  # Add transcript header with styling
+transcript_header.pack(fill=tk.X)  # Pack the transcript header to fill horizontally
 
-transcript_title = tk.Label(transcript_header, text="Transcription", 
+transcript_title = tk.Label(transcript_header, text="Transcription",   # Create label for transcript title
                           font=("Segoe UI", 14), bg="#1a2332", fg="#ffffff")
-transcript_title.pack(anchor=tk.W)
+transcript_title.pack(anchor=tk.W)  # Pack the transcript title on the left side
 
-# Subtle separator - slightly lighter blue
-separator = tk.Frame(transcript_frame, height=1, bg="#2c3445")
-separator.pack(fill=tk.X)
+separator = tk.Frame(transcript_frame, height=1, bg="#2c3445")  # Create a subtle separator line
+separator.pack(fill=tk.X)  # Pack the separator to fill horizontally
 
-# Transcript content area with better spacing
-transcript_content = tk.Frame(transcript_frame, bg="#1a2332", padx=25, pady=25)
-transcript_content.pack(fill=tk.BOTH, expand=True)
+transcript_content = tk.Frame(transcript_frame, bg="#1a2332", padx=25, pady=25)  # Create frame for transcript content with padding
+transcript_content.pack(fill=tk.BOTH, expand=True)  # Pack the transcript content to fill the transcript frame
 
-# Replace the label with a typable Text widget
-text_input = tk.Text(transcript_content, 
-                   wrap=tk.WORD,
-                   fg="#b3c0d1", 
-                   bg="#1a2332",
-                   font=("Segoe UI", 12),
+text_input = tk.Text(transcript_content,   # Create a Text widget for input and display
+                   wrap=tk.WORD,  # Wrap text by words
+                   fg="#b3c0d1",  # Light blue text color
+                   bg="#1a2332",  # Dark blue background
+                   font=("Segoe UI", 12),  # Modern font
                    bd=0,  # No border
-                   padx=0,
-                   pady=0,
-                   insertbackground="#ffffff",  # White cursor
-                   selectbackground="#3a4555",  # Selection background
+                   padx=0,  # No horizontal padding
+                   pady=0,  # No vertical padding
+                   insertbackground="#ffffff",  # White cursor color
+                   selectbackground="#3a4555",  # Selection background color
                    selectforeground="#ffffff",  # Selection text color
                    highlightthickness=0)  # No focus highlight
-text_input.pack(fill=tk.BOTH, expand=True)
-text_input.insert("1.0", "Type or speak your command here...")
+text_input.pack(fill=tk.BOTH, expand=True)  # Pack the text input to fill the transcript content area
+text_input.insert("1.0", "Type or speak your command here...")  # Insert placeholder text
 
-# Add focus in/out effects for better UX
-def on_focus_in(event):
-    if text_input.get("1.0", "end-1c") == "Type or speak your command here...":
-        text_input.delete("1.0", tk.END)
+def on_focus_in(event):  # Define function for focus-in event
+    if text_input.get("1.0", "end-1c") == "Type or speak your command here...":  # Check if text contains the placeholder
+        text_input.delete("1.0", tk.END)  # Clear the placeholder text
         
-def on_focus_out(event):
-    if text_input.get("1.0", "end-1c").strip() == "":
-        text_input.insert("1.0", "Type or speak your command here...")
+def on_focus_out(event):  # Define function for focus-out event
+    if text_input.get("1.0", "end-1c").strip() == "":  # Check if text is empty
+        text_input.insert("1.0", "Type or speak your command here...")  # Insert the placeholder text
 
-text_input.bind("<FocusIn>", on_focus_in)
-text_input.bind("<FocusOut>", on_focus_out)
+text_input.bind("<FocusIn>", on_focus_in)  # Bind focus-in event to the function
+text_input.bind("<FocusOut>", on_focus_out)  # Bind focus-out event to the function
 
-# Optional: Add a function to process typed commands when user presses Enter
-def process_typed_command(event):
-    command = text_input.get("1.0", "end-1c").strip()
-    if command and command != "Type or speak your command here...":
-        # Process the command (same logic as for spoken commands)
-        # This can call the same function that processes recognized speech
-        process_voice_command(command)
-        # Optionally clear the input after processing
-        text_input.delete("1.0", tk.END)
-    return "break"  # Prevents default Enter behavior
+def process_typed_command(event):  # Define function to process commands when Enter is pressed
+    command = text_input.get("1.0", "end-1c").strip()  # Get the text from the input widget
+    if command and command != "Type or speak your command here...":  # Check if there's a command and it's not the placeholder
+        process_voice_command(command)  # Process the command using the same function for spoken commands
+        text_input.delete("1.0", tk.END)  # Clear the input after processing
+    return "break"  # Return "break" to prevent default Enter behavior
 
-text_input.bind("<Return>", process_typed_command)
+text_input.bind("<Return>", process_typed_command)  # Bind Enter key press to the function
 
-# Get the snapshot of ALL open windows
-snapshot = get_window_snapshot()
+snapshot = get_window_snapshot()  # Get a snapshot of all open windows
 
-# Access the complete list of ALL windows
-all_open_windows = snapshot["all_windows"]  
+all_open_windows = snapshot["all_windows"]  # Get the complete list of all open windows
 
-# Print all window titles
-for window in all_open_windows:
+for window in all_open_windows:  # Loop through all windows and print their titles and application names
     print(f"Window: {window.get('title')} - Application: {window.get('app_name')}")
 
-# Use the information
-active_app = snapshot["active_window"]["app_name"]
-print(f"You're currently using: {active_app}")
-# Start the main application loop
-root.mainloop()
+active_app = snapshot["active_window"]["app_name"]  # Get the currently active application name
+print(f"You're currently using: {active_app}")  # Print the currently active application
+
+root.mainloop()  # Start the Tkinter main event loop
