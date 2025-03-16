@@ -10,6 +10,7 @@ Description: AI-powered screenshot task automation tool using OpenAI's GPT model
 Revision History:
 - 2/14/2025: Initial creation of script (Gianni Louisa)
 - 2/27/2025: Modified prompt output handling (Christopher Gronewold)
+- 3/16/2025: Added few-shot example prompting (Connor Bennudriti)
 
 Preconditions:
 - Valid OpenAI API key must be provided
@@ -143,6 +144,73 @@ class ScreenPrompter:
         b64_img = base64.b64encode(img_buffer).decode('utf-8')  # Convert to base64
         return b64_img
     
+    def createFewShotPrompts(self):
+
+        few_shot_prompts = []
+
+        
+        ##### Create coordinate example prompt
+        # b64_coordinate_example = self.convImgToB64(cv2.imread("imgs/example_screenshot.jpg"))  # Encode example image
+        # grid_coordinate_example_prompt = {
+        #     "type": "text",
+        #     "text": "Here's an example screenshot showing grid coordinates. It has a red dot at position (23.25, 13.75) and a blue X at position (26.80, 1.65). Use this as a reference for understanding how coordinates map to positions on the grid."
+        # }
+        # # Create coordinate example prompt to send the example image to the model
+        # grid_coordinate_example_prompt_img = {
+        #     "type": "image_url",
+        #     "image_url": {"url": f"data:image/jpeg;base64,{b64_coordinate_example}"}
+        # }
+        # few_shot_prompts.append(grid_coordinate_example_prompt)
+        # few_shot_prompts.append(grid_coordinate_example_prompt_img)
+
+
+
+        ##### Build the few-shot example prompts
+        print("#"*50); print("Few Shot Examples:")
+
+        # Go through the few-shot example directory 
+        few_shot_examples_dir = "few_shot_examples"
+        for dir in sorted(os.listdir(few_shot_examples_dir)):
+            dir_path = os.path.join(few_shot_examples_dir, dir) # eg "few_shot_examples\back_arrow"
+            # Only use the directories
+            if os.path.isdir(dir_path):
+
+                # Get txt file for prompt
+                prompt_txt_path = os.path.join(dir_path, f"{dir}_prompt.txt") # eg "few_shot_examples\back_arrow\back_arrow_prompt.txt"
+                # Check that prompt file exists
+                if not os.path.isfile(prompt_txt_path): 
+                    raise Exception(f"Missing prompt for few-shot examples {dir_path}. Missing file {prompt_txt_path}")
+                
+                # Get prompt from file
+                with open(prompt_txt_path, 'r') as txt_file:
+                    prompt = txt_file.read()
+                    print(prompt)
+                # Create header prompt for the example type
+                few_shot_examples_header = {
+                    "type": "text",
+                    "text": prompt
+                }
+                few_shot_prompts.append(few_shot_examples_header) # add to list of prompts
+
+                # Get images
+                valid_img_extensions = ('.png', '.jpg')
+                for img_name in sorted([img_path for img_path in os.listdir(dir_path) if img_path.endswith(valid_img_extensions)]): # only loop through image files
+                    # Get the full path to the image
+                    img_path = os.path.join(dir_path, img_name) # eg. "few_shot_examples/back_arrow/back_arrow_1.png"
+                    print(img_path)
+                    # Convert to b64 so it can be sent in a prompt
+                    b64_img = self.convImgToB64(cv2.imread(img_path))
+                    # Create the image example prompt 
+                    img_prompt = {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}
+                    }
+                    few_shot_prompts.append(img_prompt) # add to list of prompts
+
+        print("#"*50)
+
+        return few_shot_prompts
+    
     def createPromptMessages(self):
         
         messages = []
@@ -211,40 +279,14 @@ class ScreenPrompter:
         }
         # Add the main system prompt to the system prompt container
         system_prompt['content'].append(main_behavior_system_prompt)
-        
 
 
         ########## Build user prompt
         user_prompt = { "role": "user", "content": [] }
 
-        # Create coordinate example prompt
-        # grid_coordinate_example_prompt = {
-        #     "type": "text",
-        #     "text": "Here's an example screenshot showing grid coordinates. It has a red dot at position (23.25, 13.75) and a blue X at position (26.80, 1.65). Use this as a reference for understanding how coordinates map to positions on the grid."
-        # }
-        # Create coordinate example prompt to send the example image to the model
-        # grid_coordinate_example_prompt_img = {
-        #     "type": "image_url",
-        #     "image_url": {"url": f"data:image/jpeg;base64,{self.b64_coordinate_example}"}
-        # }
-
-
-        # Few shot for common icons
-        back_button_few_shot_prompt = {
-            "type": "text",
-            "text": "You will now be provided with some example images of the back button that many web pages have. Use these examples to better locate the back button when the user needs."
-        }
-
-        # TODO: just manually grabbing few-shot images for now
-        BACK_BUTTON_IMGS_b64 = [self.convImgToB64(cv2.imread(f"few_shot_example_imgs/back_arrow/back_arrow_{i}.png")) for i in range(1, 5+1)]
-        back_prompts = []
-        for b64_img in BACK_BUTTON_IMGS_b64:
-            back_button_few_shot_img = {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}
-            }    
-            back_prompts.append(back_button_few_shot_img)
-
+        # Build the few-shot example prompts
+        few_shot_prompts = self.createFewShotPrompts()
+        # print(few_shot_prompts)
 
         # Create the main user prompt to define what the model will actually be trying to acheve
         main_user_prompt = {
@@ -263,17 +305,13 @@ class ScreenPrompter:
         }
 
 
-        # Add coordinate example prompt
-        # user_prompt['content'].append(grid_coordinate_example_prompt)
-        # user_prompt['content'].append(grid_coordinate_example_prompt_img)
+
         # Add few-shot examples for common icons
-        user_prompt['content'].append(back_button_few_shot_prompt)
-        [user_prompt['content'].append(back_button_img_prompt) for back_button_img_prompt in back_prompts]
-        # Add user action prompt
+        [ user_prompt['content'].append(few_shot_prompt) for few_shot_prompt in few_shot_prompts ]
+        # Add user action prompt and images
         user_prompt["content"].append(main_user_prompt)
         user_prompt["content"].append(original_img_prompt)
         user_prompt["content"].append(grid_img_prompt)
-
 
         # Add system and user prompts to messages
         messages.append(system_prompt)
@@ -294,9 +332,6 @@ class ScreenPrompter:
         # Load original image
         img = cv2.imread(img_path)  # Read image from file
 
-        # Load example grid image for coordinate reference
-        # example_img = cv2.imread("imgs/example_screenshot.jpg")
-
         # Create grid overlay image
         grid_img = self.overlayGridOnImg(img)  # Generate grid-annotated image
 
@@ -308,7 +343,9 @@ class ScreenPrompter:
         # Convert images to base64
         self.b64_original = self.convImgToB64(img)  # Encode original image
         self.b64_grid = self.convImgToB64(grid_img)  # Encode grid image
-        # self.b64_coordinate_example = self.convImgToB64(example_img)  # Encode example image
+        
+
+        # self.createPromptMessages()
 
         # Send request to OpenAI model with maximum deterministic settings
         response = self.client.chat.completions.create(
@@ -328,15 +365,16 @@ class ScreenPrompter:
         )
 
         # Print model's response
+        print(response)
+        print()
         print(response.choices[0].message.content)
-        # print(response.choices[0])
 
 
 # Main execution block
 if __name__ == '__main__':
     # Configuration parameters
     IMG_PATH = "imgs/archsite.png"  # Path to test screenshot
-    IMG_PROMPT = "Go back two pages using mouse actions"
+    IMG_PROMPT = "Go back two pages using mouse actions. Then refresh the page"
 
     # Read API key from file
     with open("api_key.txt", "r") as f:

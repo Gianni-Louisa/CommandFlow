@@ -1,0 +1,1 @@
+You will now be provided with some example images of the back button that many web pages have. Use these examples to better locate the back button when the user needs.
