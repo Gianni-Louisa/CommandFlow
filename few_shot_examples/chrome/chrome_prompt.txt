@@ -1,0 +1,1 @@
+You will now be provided with some example images of the Google Chrome icon. This will appear on a tab that has a website related to Google Chrome open in it. If this tab needs to be switched to, clicking this icon will switch to that tab. Use these examples to better locate a Chrome tab when needed by the user.

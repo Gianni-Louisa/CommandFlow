@@ -111,12 +111,14 @@ class ScreenPrompter:
             cv2.line(canvas, (x, margin_top), (x, margin_top + h + cell_h), color=grid_color, thickness=1)
 
             # Add column numbers
-            if i <= cols:
+            if (i <= cols) and (i!=0):
                 text = str(i)
-                text_size = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
-                text_x = x - text_size[0] // 2
-                cv2.putText(canvas, text, (text_x, margin_top - 15),
-                            font, font_scale, font_color, font_thickness, cv2.LINE_AA)
+                text_size_wh = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+                
+                text_x = x - (text_size_wh[0] // 2) - (cell_w//2) # for text centerd in cell
+                # text_x = x - (text_size_wh[0] // 2) # for text on cell line
+                text_y = margin_top - (text_size_wh[1])
+                cv2.putText(canvas, text, (text_x, text_y), font, font_scale, font_color, font_thickness, cv2.LINE_AA)
 
         # Draw horizontal grid lines and row numbers
         for i in range(rows + 2):
@@ -124,12 +126,14 @@ class ScreenPrompter:
             cv2.line(canvas, (margin_left, y), (margin_left + w + cell_w, y), color=grid_color, thickness=1)
 
             # Add row numbers
-            if i <= rows:
+            if (i <= rows) and (i!=0):
                 text = str(i)
-                text_size = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
-                text_y = y + text_size[1] // 2
-                cv2.putText(canvas, text, (margin_left - text_size[0] - 10, text_y),
-                            font, font_scale, font_color, font_thickness, cv2.LINE_AA)
+                text_size_wh = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+                
+                text_x = margin_left - text_size_wh[0] - 10
+                text_y = y + (text_size_wh[1] // 2) - (cell_h//2) # for text centerd in cell
+                # text_y = y + (text_size_wh[1] // 2) # for text on cell line
+                cv2.putText(canvas, text, (text_x, text_y), font, font_scale, font_color, font_thickness, cv2.LINE_AA)
 
         return canvas
 
@@ -145,6 +149,9 @@ class ScreenPrompter:
         return b64_img
     
     def createFewShotPrompts(self):
+        """
+        Create the prompts for the few-shot examples for various commonly used icons/images that need to be located on screen
+        """
 
         few_shot_prompts = []
 
@@ -166,7 +173,7 @@ class ScreenPrompter:
 
 
         ##### Build the few-shot example prompts
-        print("#"*50); print("Few Shot Examples:")
+        print(); print("#"*50); print("Few Shot Examples:")
 
         # Go through the few-shot example directory 
         few_shot_examples_dir = "few_shot_examples"
@@ -207,11 +214,14 @@ class ScreenPrompter:
                     }
                     few_shot_prompts.append(img_prompt) # add to list of prompts
 
-        print("#"*50)
+        print("#"*50); print()
 
         return few_shot_prompts
     
     def createPromptMessages(self):
+        """
+        Create the messages that are passed into the api request
+        """
         
         messages = []
 
@@ -286,9 +296,9 @@ class ScreenPrompter:
 
         # Build the few-shot example prompts
         few_shot_prompts = self.createFewShotPrompts()
-        # print(few_shot_prompts)
 
         # Create the main user prompt to define what the model will actually be trying to acheve
+        #TODO: might be better to have seperate actions as different prompts? I had margionally better luck with single action prompts in a few tests. Needs further testing - connor
         main_user_prompt = {
             "type": "text",
             "text": f"Please provide the commands needed to complete this task: {self.prompt}\n\nI'm providing two images: the original screenshot and the same screenshot with a grid overlay for coordinate reference. First, reason through the different ways to complete this task, identify the relevant UI elements, and explain your approach. Then provide the specific commands."
@@ -344,15 +354,15 @@ class ScreenPrompter:
         self.b64_original = self.convImgToB64(img)  # Encode original image
         self.b64_grid = self.convImgToB64(grid_img)  # Encode grid image
         
-
-        # self.createPromptMessages()
+        # Create the message to provide to the model
+        messages = self.createPromptMessages()
 
         # Send request to OpenAI model with maximum deterministic settings
         response = self.client.chat.completions.create(
             model=self.model,
             temperature=0.0,  # Minimum temperature for maximum determinism
             top_p=1.0,  # Use full token distribution
-            seed=42,  # Fixed seed for reproducibility
+            seed=64,  # Fixed seed for reproducibility
             max_completion_tokens=1500,  # Use max_completion_tokens instead of max_tokens
             n=1,  # Single completion
             stream=False,  # Disable response streaming
@@ -361,7 +371,7 @@ class ScreenPrompter:
             logit_bias={},  # No logit bias
             response_format={"type": "text"},  # Explicit text format
 
-            messages=self.createPromptMessages() # Create the message to provide to the model
+            messages=messages
         )
 
         # Print model's response
@@ -373,8 +383,8 @@ class ScreenPrompter:
 # Main execution block
 if __name__ == '__main__':
     # Configuration parameters
-    IMG_PATH = "imgs/archsite.png"  # Path to test screenshot
-    IMG_PROMPT = "Go back two pages using mouse actions. Then refresh the page"
+    IMG_PATH = "imgs/arch2.png"  # Path to test screenshot
+    IMG_PROMPT = "Go back one page by clicking the back arrow. Then click the refresh button. Then switch to the Google Chrome tab."
 
     # Read API key from file
     with open("api_key.txt", "r") as f:
@@ -383,11 +393,3 @@ if __name__ == '__main__':
     # Initialize and run ScreenPrompter
     screenPrompter = ScreenPrompter(API_KEY)  # Create instance with API key
     screenPrompter.sendRequest(IMG_PATH, IMG_PROMPT)  # Send screenshot request
-
-'''
-Icons
-- Chrome
-- VSCode
-- Back arrow
-- Minimize
-'''
