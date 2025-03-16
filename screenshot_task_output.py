@@ -142,6 +142,144 @@ class ScreenPrompter:
         ret, img_buffer = cv2.imencode('.png', img)  # Encode image to PNG
         b64_img = base64.b64encode(img_buffer).decode('utf-8')  # Convert to base64
         return b64_img
+    
+    def createPromptMessages(self):
+        
+        messages = []
+
+        ########## Build system prompt - note: can only send images in the user prompt
+        system_prompt = { "role": "system", "content": [] }
+
+        # Create the main system prompt that specifies the model's behavior and role
+        main_behavior_system_prompt = {
+            "type": "text", 
+            "text": """
+            You are an assistant that helps users control their computer by generating commands based on screenshots.
+
+            You will be provided with:
+            1. An example screenshot showing grid coordinates
+            2. The original screenshot without any overlay
+            3. The same screenshot with a numbered grid overlay
+
+            Use the grid overlay to determine precise coordinates, but refer to the original screenshot for visual clarity.
+
+            IMPORTANT: The whole number coordinates (0, 1, 2, etc.) are positioned directly on the grid lines, not in the center of cells.
+            When specifying coordinates, use the grid lines as reference points for whole numbers, and use decimal places for positions between lines.
+
+            Available commands:
+            1. MOVE_MOUSE(row, col) - Move the mouse to the specified grid coordinates
+            - Coordinates should be specified with 2 decimal places precision (e.g., 5.25, 10.75)
+            - This allows for more precise positioning within grid cells
+            2. CLICK(type) - Click at the current mouse position. Type can be "left" or "right"
+            3. TYPE(text) - Type the specified text
+            4. PRESS_KEY(key) - Press a specific keyboard key or keyboard shortcut
+            - For single keys: "enter", "escape", "tab", "delete", "backspace", "space"
+            - For keyboard shortcuts, use "+" between keys: "ctrl+w", "alt+f4", "ctrl+shift+t"
+            - For a sequence of key presses, use separate PRESS_KEY commands for each
+            - Examples:
+                * PRESS_KEY(ctrl+w)  # Close a browser tab
+                * PRESS_KEY(alt+f4)  # Close an application
+                * PRESS_KEY(ctrl+c)  # Copy
+                * PRESS_KEY(ctrl+v)  # Paste
+            5. SCREENSHOT() - Take a new screenshot to see the updated screen state
+
+            IMPORTANT: Keyboard shortcuts are often the most efficient way to complete tasks. Consider using them when appropriate.
+
+            Your response should have two sections:
+
+            1. REASONING:
+            - Analyze what you see in the screenshot
+            - Identify UI elements relevant to the task
+            - Consider different approaches to complete the task (including keyboard shortcuts)
+            - Explain why you chose specific coordinates or keyboard shortcuts
+            - Describe what each element looks like and where it's located
+
+            2. COMMANDS:
+            A JSON-formatted list of commands in the exact order they should be executed. For example:
+            [
+                "MOVE_MOUSE(5.25, 10.75)",
+                "CLICK(left)",
+                "TYPE(Hello world)",
+                "PRESS_KEY(enter)",
+                "SCREENSHOT()"
+            ]
+
+            Be precise with coordinates, using the numbered grid on the screenshot. Row numbers (Y-axis) start from 0 at the top, and column numbers (X-axis) start from 0 at the left.
+
+            Always provide the most direct and efficient sequence of commands to complete the task.
+            """
+        }
+        # Add the main system prompt to the system prompt container
+        system_prompt['content'].append(main_behavior_system_prompt)
+        
+
+
+        ########## Build user prompt
+        user_prompt = { "role": "user", "content": [] }
+
+        # Create coordinate example prompt
+        # grid_coordinate_example_prompt = {
+        #     "type": "text",
+        #     "text": "Here's an example screenshot showing grid coordinates. It has a red dot at position (23.25, 13.75) and a blue X at position (26.80, 1.65). Use this as a reference for understanding how coordinates map to positions on the grid."
+        # }
+        # Create coordinate example prompt to send the example image to the model
+        # grid_coordinate_example_prompt_img = {
+        #     "type": "image_url",
+        #     "image_url": {"url": f"data:image/jpeg;base64,{self.b64_coordinate_example}"}
+        # }
+
+
+        # Few shot for common icons
+        back_button_few_shot_prompt = {
+            "type": "text",
+            "text": "You will now be provided with some example images of the back button that many web pages have. Use these examples to better locate the back button when the user needs."
+        }
+
+        # TODO: just manually grabbing few-shot images for now
+        BACK_BUTTON_IMGS_b64 = [self.convImgToB64(cv2.imread(f"few_shot_example_imgs/back_arrow/back_arrow_{i}.png")) for i in range(1, 5+1)]
+        back_prompts = []
+        for b64_img in BACK_BUTTON_IMGS_b64:
+            back_button_few_shot_img = {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}
+            }    
+            back_prompts.append(back_button_few_shot_img)
+
+
+        # Create the main user prompt to define what the model will actually be trying to acheve
+        main_user_prompt = {
+            "type": "text",
+            "text": f"Please provide the commands needed to complete this task: {self.prompt}\n\nI'm providing two images: the original screenshot and the same screenshot with a grid overlay for coordinate reference. First, reason through the different ways to complete this task, identify the relevant UI elements, and explain your approach. Then provide the specific commands."
+        }
+        # Create the prmopt to send the original image to the model
+        original_img_prompt = {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{self.b64_original}"}
+        }
+        # Create the prmopt to send the image with a grid overlay to the model
+        grid_img_prompt = {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{self.b64_grid}"}
+        }
+
+
+        # Add coordinate example prompt
+        # user_prompt['content'].append(grid_coordinate_example_prompt)
+        # user_prompt['content'].append(grid_coordinate_example_prompt_img)
+        # Add few-shot examples for common icons
+        user_prompt['content'].append(back_button_few_shot_prompt)
+        [user_prompt['content'].append(back_button_img_prompt) for back_button_img_prompt in back_prompts]
+        # Add user action prompt
+        user_prompt["content"].append(main_user_prompt)
+        user_prompt["content"].append(original_img_prompt)
+        user_prompt["content"].append(grid_img_prompt)
+
+
+        # Add system and user prompts to messages
+        messages.append(system_prompt)
+        messages.append(user_prompt)
+
+        return messages
 
     def sendRequest(self, img_path, prompt):
         """
@@ -150,11 +288,14 @@ class ScreenPrompter:
         @param img_path: Path to screenshot image
         @param prompt: Task description prompt
         """
+
+        self.prompt = prompt
+        
         # Load original image
         img = cv2.imread(img_path)  # Read image from file
 
         # Load example grid image for coordinate reference
-        example_img = cv2.imread("imgs/example_screenshot.jpg")
+        # example_img = cv2.imread("imgs/example_screenshot.jpg")
 
         # Create grid overlay image
         grid_img = self.overlayGridOnImg(img)  # Generate grid-annotated image
@@ -165,9 +306,9 @@ class ScreenPrompter:
         print(f"Grid overlay image saved to: {output_path}")
 
         # Convert images to base64
-        b64_original = self.convImgToB64(img)  # Encode original image
-        b64_grid = self.convImgToB64(grid_img)  # Encode grid image
-        b64_example = self.convImgToB64(example_img)  # Encode example image
+        self.b64_original = self.convImgToB64(img)  # Encode original image
+        self.b64_grid = self.convImgToB64(grid_img)  # Encode grid image
+        # self.b64_coordinate_example = self.convImgToB64(example_img)  # Encode example image
 
         # Send request to OpenAI model with maximum deterministic settings
         response = self.client.chat.completions.create(
@@ -183,103 +324,19 @@ class ScreenPrompter:
             logit_bias={},  # No logit bias
             response_format={"type": "text"},  # Explicit text format
 
-            messages=[
-                {
-                    "role": "system",
-                    "content": """
-                    You are an assistant that helps users control their computer by generating commands based on screenshots.
-
-                    You will be provided with:
-                    1. An example screenshot showing grid coordinates
-                    2. The original screenshot without any overlay
-                    3. The same screenshot with a numbered grid overlay
-
-                    Use the grid overlay to determine precise coordinates, but refer to the original screenshot for visual clarity.
-
-                    IMPORTANT: The whole number coordinates (0, 1, 2, etc.) are positioned directly on the grid lines, not in the center of cells.
-                    When specifying coordinates, use the grid lines as reference points for whole numbers, and use decimal places for positions between lines.
-
-                    Available commands:
-                    1. MOVE_MOUSE(row, col) - Move the mouse to the specified grid coordinates
-                       - Coordinates should be specified with 2 decimal places precision (e.g., 5.25, 10.75)
-                       - This allows for more precise positioning within grid cells
-                    2. CLICK(type) - Click at the current mouse position. Type can be "left" or "right"
-                    3. TYPE(text) - Type the specified text
-                    4. PRESS_KEY(key) - Press a specific keyboard key or keyboard shortcut
-                       - For single keys: "enter", "escape", "tab", "delete", "backspace", "space"
-                       - For keyboard shortcuts, use "+" between keys: "ctrl+w", "alt+f4", "ctrl+shift+t"
-                       - For a sequence of key presses, use separate PRESS_KEY commands for each
-                       - Examples:
-                         * PRESS_KEY(ctrl+w)  # Close a browser tab
-                         * PRESS_KEY(alt+f4)  # Close an application
-                         * PRESS_KEY(ctrl+c)  # Copy
-                         * PRESS_KEY(ctrl+v)  # Paste
-                    5. SCREENSHOT() - Take a new screenshot to see the updated screen state
-
-                    IMPORTANT: Keyboard shortcuts are often the most efficient way to complete tasks. Consider using them when appropriate.
-
-                    Your response should have two sections:
-
-                    1. REASONING:
-                       - Analyze what you see in the screenshot
-                       - Identify UI elements relevant to the task
-                       - Consider different approaches to complete the task (including keyboard shortcuts)
-                       - Explain why you chose specific coordinates or keyboard shortcuts
-                       - Describe what each element looks like and where it's located
-
-                    2. COMMANDS:
-                       A JSON-formatted list of commands in the exact order they should be executed. For example:
-                       [
-                           "MOVE_MOUSE(5.25, 10.75)",
-                           "CLICK(left)",
-                           "TYPE(Hello world)",
-                           "PRESS_KEY(enter)",
-                           "SCREENSHOT()"
-                       ]
-
-                    Be precise with coordinates, using the numbered grid on the screenshot. Row numbers (Y-axis) start from 0 at the top, and column numbers (X-axis) start from 0 at the left.
-
-                    Always provide the most direct and efficient sequence of commands to complete the task.
-                    """
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Here's an example screenshot showing grid coordinates. It has a red dot at position (23.25, 13.75) and a blue X at position (26.80, 1.65). Use this as a reference for understanding how coordinates map to positions on the grid."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{b64_example}"}
-                        },
-                        {
-                            "type": "text",
-                            "text": f"Please provide the commands needed to complete this task: {prompt}\n\nI'm providing two images: the original screenshot and the same screenshot with a grid overlay for coordinate reference. First, reason through the different ways to complete this task, identify the relevant UI elements, and explain your approach. Then provide the specific commands."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{b64_original}"}
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{b64_grid}"}
-                        }
-                    ]
-                }
-            ]
+            messages=self.createPromptMessages() # Create the message to provide to the model
         )
 
         # Print model's response
         print(response.choices[0].message.content)
+        # print(response.choices[0])
 
 
 # Main execution block
 if __name__ == '__main__':
     # Configuration parameters
-    IMG_PATH = "imgs/test_screenshot.png"  # Path to test screenshot
-    IMG_PROMPT = "Open Spotify"  # Close the current tab then open a gmail tab.
-    # "Close the current tab then open a gmail tab." "Open Spotify"
+    IMG_PATH = "imgs/archsite.png"  # Path to test screenshot
+    IMG_PROMPT = "Go back two pages using mouse actions"
 
     # Read API key from file
     with open("api_key.txt", "r") as f:
@@ -288,3 +345,11 @@ if __name__ == '__main__':
     # Initialize and run ScreenPrompter
     screenPrompter = ScreenPrompter(API_KEY)  # Create instance with API key
     screenPrompter.sendRequest(IMG_PATH, IMG_PROMPT)  # Send screenshot request
+
+'''
+Icons
+- Chrome
+- VSCode
+- Back arrow
+- Minimize
+'''
