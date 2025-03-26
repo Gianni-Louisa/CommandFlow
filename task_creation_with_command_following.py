@@ -46,6 +46,7 @@ from PIL import Image  # Import PIL for image handling
 import io  # Import io for byte stream handling
 import json  # Import json for JSON handling
 import re  # Import re for regular expressions
+import sys  # Import sys for command line argument handling
 
 
 class ScreenPrompter:  # Define the ScreenPrompter class
@@ -71,6 +72,11 @@ class ScreenPrompter:  # Define the ScreenPrompter class
         img_array = np.array(Image.open(img_byte_arr))  # Convert byte stream to NumPy array
         img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)  # Convert RGB to BGR format for OpenCV
         return img_array  # Return the image array
+
+    def auto_screenshot(self):
+        # Automatically take a screenshot without waiting for a key press
+        print("Taking screenshot automatically...")
+        return self.take_screenshot()
 
     def wait_for_screenshot_key(self):  # Method to wait for a key press to take a screenshot
         print("Press Alt+Shift+S to take a screenshot...")  # Prompt user for key press
@@ -289,7 +295,8 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             self.messages = []  # Reset messages list
             self.initialize_system_message()  # Initialize system message
 
-        img = self.wait_for_screenshot_key()  # Wait for user to take a screenshot
+        # Use auto_screenshot instead of waiting for key press
+        img = self.auto_screenshot()  # Automatically take a screenshot
 
         # Save the screenshot with fixed name instead of timestamp to improve determinism
         screenshot_path = f"output/latest_screenshot.png"  # Define path for the screenshot
@@ -366,7 +373,15 @@ if __name__ == '__main__':  # Main execution block
     with open("api_key.txt", "r") as f:  # Open API key file
         API_KEY = f.read().strip()  # Read and strip API key
 
-    IMG_PROMPT = "Open Spotify"  # Define the image prompt
+    # Check if a command was passed from another process
+    if len(sys.argv) > 1:
+        # Use the command passed as argument
+        IMG_PROMPT = " ".join(sys.argv[1:])
+    else:
+        # Default prompt if none provided
+        IMG_PROMPT = "Open Windows Search"  # Define the image prompt
+    
+    print(f"Processing task: {IMG_PROMPT}")
 
     screenPrompter = ScreenPrompter(API_KEY)  # Create an instance of ScreenPrompter
     screenPrompter.sendRequest(IMG_PROMPT)  # Send request to the model

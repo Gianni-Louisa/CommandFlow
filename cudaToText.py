@@ -82,11 +82,27 @@ def process_voice_command(command):
     print(f"Processing command: {command}")  # Print the command being processed for debugging
     move_mouse_commands = ["move mouse", "move the mouse"]  # Define list of commands related to mouse movement for easier matching
     exit_commands = ["exit window", "close window"]  # Define list of commands related to closing windows for easier matching
+    task_commands = ["task", "automate", "perform task"]  # Define list of commands related to task automation
 
     try:
         # Update feedback UI to show command being processed
         update_feedback_display("Processing command...", "processing")
         
+        # Check if this is a task automation command
+        if any(cmd in command for cmd in task_commands):
+            status_label.after(0, lambda: status_label.config(text="Launching task automation..."))
+            # Extract the actual task description from the command
+            task_description = command
+            for prefix in task_commands:
+                if command.startswith(prefix):
+                    task_description = command[len(prefix):].strip()
+                    break
+            
+            # Launch the task automation in a separate thread to avoid blocking the GUI
+            executor.submit(launch_task_automation, task_description)
+            update_feedback_display("Task automation launched", "success")
+            return True
+            
         if any(cmd in command for cmd in move_mouse_commands):  # Check if any of the mouse movement commands are in the recognized text
             if "top right" in command:  # Check if "top right" is specified in the command
                 status_label.after(0, lambda: status_label.config(text="Moving mouse to top right"))  # Use tkinter's after method to update status label safely from another thread
@@ -116,6 +132,48 @@ def process_voice_command(command):
         status_label.after(0, lambda: status_label.config(text=f"Command error: {str(e)}"))  # Update status label to show the error
         update_feedback_display("Command execution failed", "error")
         return False  # Return False to indicate command handling failed
+
+
+def launch_task_automation(task_description):
+    """
+    Launch the task automation with the given task description
+    
+    Args:
+        task_description (str): The description of the task to automate
+    """
+    try:
+        # Import the ScreenPrompter class from task_creation_with_command_following
+        from task_creation_with_command_following import ScreenPrompter
+        
+        # Try to read API key from file
+        api_key = None
+        try:
+            with open("api_key.txt", "r") as f:
+                api_key = f.read().strip()
+        except Exception as e:
+            print(f"Error reading API key: {e}")
+            update_feedback_display("Failed to read API key for task automation", "error")
+            return
+        
+        if not api_key:
+            update_feedback_display("No API key found for task automation", "error")
+            return
+            
+        # Create an instance of ScreenPrompter and send the request
+        screen_prompter = ScreenPrompter(api_key)
+        
+        # Update UI to show we're starting task automation
+        update_feedback_display(f"Starting task: {task_description}", "processing")
+        
+        # Send the request to the model
+        screen_prompter.sendRequest(task_description)
+        
+        # Update UI when task is complete
+        update_feedback_display("Task automation completed", "success")
+        
+    except Exception as e:
+        print(f"Error in task automation: {e}")
+        update_feedback_display(f"Task automation error: {str(e)}", "error")
 
 
 def update_feedback_display(message, status_type):
@@ -188,6 +246,9 @@ def save_and_process_audio(audio_data):
                 update_feedback_display("Ignored likely false recognition", "error")
             else:
                 process_voice_command(text)  # Process the recognized text as a command
+                # Then run the task creation script with the recognized text
+                import subprocess
+                subprocess.run(['python', 'task_creation_with_command_following.py', text])
         else:
             print("No speech detected")  # Log that no speech was detected
             text_input.delete("1.0", tk.END)  # Clear the text input widget
