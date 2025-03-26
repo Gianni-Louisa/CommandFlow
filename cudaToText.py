@@ -84,29 +84,75 @@ def process_voice_command(command):
     exit_commands = ["exit window", "close window"]  # Define list of commands related to closing windows for easier matching
 
     try:
+        # Update feedback UI to show command being processed
+        update_feedback_display("Processing command...", "processing")
+        
         if any(cmd in command for cmd in move_mouse_commands):  # Check if any of the mouse movement commands are in the recognized text
             if "top right" in command:  # Check if "top right" is specified in the command
                 status_label.after(0, lambda: status_label.config(text="Moving mouse to top right"))  # Use tkinter's after method to update status label safely from another thread
                 screen_width, _ = pyautogui.size()  # Get the screen width and height (only using width here)
                 pyautogui.moveTo(screen_width - 1, 0, duration=0.5)  # Move the mouse to the top-right corner of the screen over 0.5 seconds
+                update_feedback_display("Command executed successfully", "success")
                 return True  # Return True to indicate command was handled
             else:
                 status_label.after(0, lambda: status_label.config(text="Moving mouse to default icon position"))  # If no specific location mentioned, move to default position
                 icon_x, icon_y = 200, 200  # Define default position coordinates
                 pyautogui.moveTo(icon_x, icon_y, duration=0.5)  # Move the mouse to the default position over 0.5 seconds
+                update_feedback_display("Command executed successfully", "success")
                 return True  # Return True to indicate command was handled
 
         if any(cmd in command for cmd in exit_commands):  # Check if any window closing commands are in the recognized text
             status_label.after(0, lambda: status_label.config(text="Exiting current window"))  # Update status label to show we're exiting the window
             pyautogui.hotkey("alt", "f4")  # Simulate Alt+F4 keyboard shortcut to close the active window
+            update_feedback_display("Command executed successfully", "success")
             return True  # Return True to indicate command was handled
 
+        # If we reach here, no command was recognized
+        update_feedback_display("No matching command found", "error")
         return False  # Return False if no matching command was found
 
     except Exception as e:
         print(f"Error in command processing: {e}")  # Print error message if any exception occurs during command processing
         status_label.after(0, lambda: status_label.config(text=f"Command error: {str(e)}"))  # Update status label to show the error
+        update_feedback_display("Command execution failed", "error")
         return False  # Return False to indicate command handling failed
+
+
+def update_feedback_display(message, status_type):
+    """
+    Update the feedback display with command execution status
+    
+    Args:
+        message (str): The feedback message to display
+        status_type (str): The type of status - 'processing', 'success', or 'error'
+    """
+    # Define colors for different status types
+    status_colors = {
+        "processing": "#3498db",  # Blue
+        "success": "#2ecc71",     # Green
+        "error": "#e74c3c"        # Red
+    }
+    
+    # Get the color for this status type
+    color = status_colors.get(status_type, "#7f8c8d")
+    
+    # Update the feedback display on the GUI thread
+    feedback_display.after(0, lambda: feedback_display.config(
+        text=message,
+        fg="white",
+        bg=color
+    ))
+    
+    # Log the feedback in console too
+    print(f"Feedback ({status_type}): {message}")
+    
+    # Clear the feedback after a delay for success messages
+    if status_type == "success":
+        feedback_display.after(3000, lambda: feedback_display.config(
+            text="Ready for next command",
+            fg="white",
+            bg="#1a2332"
+        ))
 
 
 def save_and_process_audio(audio_data):
@@ -115,6 +161,7 @@ def save_and_process_audio(audio_data):
     save_and_process_audio(): Function to save the audio to a wav file and then process it
     """
     try:
+        update_feedback_display("Processing audio...", "processing")
         processed_audio = preprocess_audio(audio_data)  # Preprocess the audio to enhance recognition quality
         with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_audio_file:  # Create a temporary WAV file with '.wav' extension that won't be immediately deleted
             temp_filename = temp_audio_file.name  # Get the name of the temporary file
@@ -133,16 +180,19 @@ def save_and_process_audio(audio_data):
             print(f"Recognized text: {text}")  # Print the recognized text for debugging
             text_input.delete("1.0", tk.END)  # Delete all text in the text input widget
             text_input.insert("1.0", text)  # Insert the recognized text into the text input widget
+            update_feedback_display("Speech recognized", "success")
             context = get_context_for_speech_command(text)  # Get context to determine if this is likely a false positive
 
             if context.get("likely_false_positive"):  # Check if the recognition is likely a false positive based on context
                 print(f"Ignoring likely false recognition: {text}")  # Log that we're ignoring a likely false recognition
+                update_feedback_display("Ignored likely false recognition", "error")
             else:
                 process_voice_command(text)  # Process the recognized text as a command
         else:
             print("No speech detected")  # Log that no speech was detected
             text_input.delete("1.0", tk.END)  # Clear the text input widget
             text_input.insert("1.0", "No speech detected")  # Display "No speech detected" message in the text input widget
+            update_feedback_display("No speech detected", "error")
 
         os.unlink(temp_filename)  # Delete the temporary file to clean up
 
@@ -150,6 +200,7 @@ def save_and_process_audio(audio_data):
         print(f"Error in audio processing: {e}")  # Print error message if any exception occurs during audio processing
         text_input.delete("1.0", tk.END)  # Clear the text input widget
         text_input.insert("1.0", f"Processing error: {str(e)}")  # Display the error message in the text input widget
+        update_feedback_display("Audio processing error", "error")
 
 
 class AudioProcessor:
@@ -238,6 +289,9 @@ def toggle_record():
         try:
             listening_event.set()  # Enable listening by setting the event
             
+            # Update feedback display
+            update_feedback_display("Listening for commands...", "processing")
+            
             audio_processor = AudioProcessor()  # Create an AudioProcessor instance
 
             recording_thread = threading.Thread(target=audio_processor.process_audio, daemon=True)  # Create a new thread for audio processing that will run in the background
@@ -247,18 +301,20 @@ def toggle_record():
         except Exception as e:
             print(f"Error starting recording: {e}")  # Print error message if any exception occurs when starting recording
             status_label.config(text=f"Error: {str(e)}")  # Update status label with the error message
+            update_feedback_display(f"Recording error: {str(e)}", "error")
             listening_event.clear()  # Clear the listening event to stop audio processing
     else:
         listening_event.clear()  # Stop listening by clearing the event
         status_label.config(text="Press button and speak")  # Update status label to show stopped state
         text_input.delete("1.0", tk.END)  # Clear the text input widget
         text_input.insert("1.0", "Stopped listening")  # Display "Stopped listening" message in the text input widget
+        update_feedback_display("Recording stopped", "success")
         print("Stopped listening")  # Log that listening stopped
 
 
 root = tk.Tk()  # Create the main Tkinter window
 root.title("CommandFlow")  # Set the window title
-root.geometry("800x500")  # Set the window size
+root.geometry("800x600")  # Increased height to accommodate all elements
 root.configure(bg="#212a38")  # Set the background color to dark blue
 
 main_container = tk.Frame(root, bg="#212a38", padx=0, pady=0)  # Create main container frame with no padding
@@ -293,8 +349,10 @@ content_title = tk.Label(content_area, text="Voice Recognition",   # Add title t
                         font=("Segoe UI", 18, "bold"), bg="#212a38", fg="#ffffff")
 content_title.pack(anchor=tk.W, pady=(0, 30))  # Pack the content title at the top of the content area with padding
 
-transcript_frame = tk.Frame(content_area, bg="#1a2332", bd=0)  # Create a darker blue frame for the transcription
-transcript_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))  # Pack the transcript frame to fill the content area
+# Create transcript container with fixed height to prevent it from taking too much space
+transcript_frame = tk.Frame(content_area, bg="#1a2332", bd=0, height=250)  # Set fixed height
+transcript_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))  # Pack the transcript frame
+transcript_frame.pack_propagate(False)  # Prevent the frame from shrinking to fit its contents
 
 transcript_header = tk.Frame(transcript_frame, bg="#1a2332", padx=25, pady=20)  # Add transcript header with styling
 transcript_header.pack(fill=tk.X)  # Pack the transcript header to fill horizontally
@@ -353,5 +411,37 @@ for window in all_open_windows:  # Loop through all windows and print their titl
 
 active_app = snapshot["active_window"]["app_name"]  # Get the currently active application name
 print(f"You're currently using: {active_app}")  # Print the currently active application
+
+# Create a feedback section with more visibility
+feedback_frame = tk.Frame(content_area, bg="#1a2332", bd=0)
+feedback_frame.pack(fill=tk.X, expand=False, pady=(0, 15))  # Ensure it's packed with padding
+
+feedback_header = tk.Frame(feedback_frame, bg="#1a2332", padx=25, pady=15)
+feedback_header.pack(fill=tk.X)
+
+feedback_title = tk.Label(feedback_header, text="Command Status", 
+                         font=("Segoe UI", 14, "bold"), bg="#1a2332", fg="#ffffff")  # Make the title bold
+feedback_title.pack(anchor=tk.W)
+
+separator_feedback = tk.Frame(feedback_frame, height=1, bg="#2c3445")
+separator_feedback.pack(fill=tk.X)
+
+# Increase the height of the feedback content area
+feedback_content = tk.Frame(feedback_frame, bg="#1a2332", padx=25, pady=20, height=80)  # Increased height and padding
+feedback_content.pack(fill=tk.X)
+feedback_content.pack_propagate(False)  # Prevent shrinking
+
+# Make the colored background larger with more padding
+feedback_display = tk.Label(feedback_content, 
+                          text="Ready for commands", 
+                          font=("Segoe UI", 12),
+                          bg="#1a2332", 
+                          fg="white",
+                          anchor=tk.CENTER,  # Center the text
+                          padx=20,          # More horizontal padding
+                          pady=15,          # More vertical padding
+                          wraplength=400,
+                          justify=tk.CENTER) # Center-justify the text
+feedback_display.pack(fill=tk.BOTH, expand=True)  # Fill both directions and expand
 
 root.mainloop()  # Start the Tkinter main event loop
