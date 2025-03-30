@@ -176,6 +176,74 @@ class ScreenPrompter:  # Define the ScreenPrompter class
         pixel_y = self.margin_top + row * self.grid_cell_size_px[1]  # Calculate pixel y-coordinate
         return pixel_x, pixel_y  # Return pixel coordinates
 
+    def create_and_open_new_python_program(self, command):
+        match = re.search(r"CREATE_SCRIPT\((.*)\)", command)  # Match command pattern
+        if match:  # If command matches
+
+            # Create filename
+            filename_timestamp = f"{datetime.datetime.now().strftime('%m-%d-%G_%H-%M')}" # get datetime of when program was created
+            # filename = filename_timestamp + "__" + match.group(1).strip('"\'')  # create filename by adding the passed in filename to the timestamp string
+            filename = filename_timestamp + "__" + "generated_script.py"  # create filename by adding the passed in filename to the timestamp string
+            
+            cmd_flow_dir = os.getcwd() # get absolute working dir
+            filepath = rf"{cmd_flow_dir}\output\scripts\{filename}" # get absolute path of the file
+
+            # Need to go through and replace all instances of "\" with "\\" to ensure json readibilty
+            esc_filepath = ""
+            for ch in filepath:
+                if ch == "\\": # if SINGLE backslash
+                    esc_filepath = esc_filepath + "\\\\" # add DOUBLE backslash to the new string
+                else: # if regular char just add it to the new string
+                    esc_filepath = esc_filepath + ch
+
+            self.generated_script_filepath = esc_filepath
+
+        else:
+            raise ValueError(f"Invalid filename in:\n {command}")            
+        
+        # Create the commands that need to be executed to create a new script file 
+        cmds = f"""
+        ```json
+        [
+            "PRESS_KEY(win+s)",
+            "TYPE(Visual Studio Code)",
+            "PRESS_KEY(enter)",
+            "WAIT(2)",
+            "PRESS_KEY(ctrl+n)",
+            "PRESS_KEY(ctrl+s)",
+            "WAIT(1)",
+            "TYPE({self.generated_script_filepath})",
+            "PRESS_KEY(enter)",
+            "WAIT(2)"
+        ]
+        ```
+        """
+        # Execute the commands to create a script
+        self.execute_commands(cmds)
+
+    def type_python_program(self):
+
+        #TODO: this will need to be changed to automatically generate the script
+        
+        cmds = f"""
+            ```json
+            [
+                "TYPE(import numpy as np)",
+                "PRESS_KEY(esc)",
+                "PRESS_KEY(enter)",
+                "TYPE(l = np.array([5, 1, 6, 2, 0]))",
+                "PRESS_KEY(enter)",
+                "TYPE(l.sort())",
+                "PRESS_KEY(enter)",
+                "TYPE(print(l))",
+                "PRESS_KEY(enter)",
+                "PRESS_KEY(ctrl+s)"
+            ]
+            ```
+            """
+        # Execute the commands to create a script
+        self.execute_commands(cmds)
+
     def execute_command(self, command):  # Method to execute a command
         if command.startswith("MOVE_MOUSE"):  # Check if command is to move mouse
             match = re.search(r"MOVE_MOUSE\((\d+\.?\d*),\s*(\d+\.?\d*)\)", command)  # Match command pattern
@@ -225,60 +293,8 @@ class ScreenPrompter:  # Define the ScreenPrompter class
         
         elif command.startswith("CREATE_SCRIPT"):
 
-            match = re.search(r"CREATE_SCRIPT\((.*)\)", command)  # Match command pattern
-            if match:  # If command matches
-
-                # Create filename
-                filename_timestamp = f"{datetime.datetime.now().strftime('%m-%d-%G_%H-%M')}" # get datetime of when program was created
-                # filename = filename_timestamp + "__" + match.group(1).strip('"\'')  # create filename by adding the passed in filename to the timestamp string
-                filename = filename_timestamp + "__" + "generated_script.py"  # create filename by adding the passed in filename to the timestamp string
-                
-                cmd_flow_dir = os.getcwd() # get absolute working dir
-                filepath = rf"{cmd_flow_dir}\output\scripts\{filename}" # get absolute path of the file
-
-                # Need to go through and replace all instances of "\" with "\\" to ensure json readibilty
-                esc_filepath = ""
-                for ch in filepath:
-                    if ch == "\\": # if SINGLE backslash
-                        esc_filepath = esc_filepath + "\\\\" # add DOUBLE backslash to the new string
-                    else: # if regular char just add it to the new string
-                        esc_filepath = esc_filepath + ch
-
-                self.generated_script_filepath = esc_filepath
-
-            else:
-                raise ValueError(f"Invalid filename in:\n {command}")            
-            
-            # Create the commands that need to be executed to create a new script file 
-            cmds = f"""
-            ```json
-            [
-                "PRESS_KEY(win+s)",
-                "TYPE(Visual Studio Code)",
-                "PRESS_KEY(enter)",
-                "WAIT(2)",
-                "PRESS_KEY(ctrl+n)",
-                "PRESS_KEY(ctrl+s)",
-                "WAIT(1)",
-                "TYPE({self.generated_script_filepath})",
-                "PRESS_KEY(enter)",
-                "WAIT(2)",
-
-                "TYPE(import numpy as np)",
-                "PRESS_KEY(esc)",
-                "PRESS_KEY(enter)",
-                "TYPE(l = np.array([5, 1, 6, 2, 0]))",
-                "PRESS_KEY(enter)",
-                "TYPE(l.sort())",
-                "PRESS_KEY(enter)",
-                "TYPE(print(l))",
-                "PRESS_KEY(enter)",
-                "PRESS_KEY(ctrl+s)"
-            ]
-            ```
-            """
-            # Execute the commands to create a script
-            self.execute_commands(cmds)
+            self.create_and_open_new_python_program(command)
+            self.type_python_program()
             
             print("Done creating script")
 
