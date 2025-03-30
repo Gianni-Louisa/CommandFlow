@@ -48,7 +48,12 @@ import io  # Import io for byte stream handling
 import json  # Import json for JSON handling
 import re  # Import re for regular expressions
 import sys  # Import sys for command line argument handling
+import os   # Import OS for getting file path
+import datetime # Import datetime to log date and time for external logging
 
+script_dir = os.path.dirname(__file__)  # Path to the directory the script is in
+log_rel_path = "logs\\" + str(datetime.date.today()) + ".txt"   # Relative path to the log file, using current date
+log_abs_path = os.path.join(script_dir, log_rel_path)   # Join path to log file to path to current directory
 
 class ScreenPrompter:  # Define the ScreenPrompter class
     def __init__(self, api_key: str = None, model: str = "gpt-4o-2024-08-06"):  # Constructor with API key and model
@@ -388,6 +393,16 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             result = self.sendRequest(prompt, continue_conversation=True)  # Recursively send request
             return result  # Return the result of the recursive call
         
+        # Log data to external file
+        with open(log_abs_path, "a") as logfile:
+            # Begin section ('{'), write log ID to file
+            logfile.write("{\n")
+
+            # Write the current time, user prompt, and AI response, and close section ('}')
+            logfile.write("time: " + str(datetime.datetime.now()) + "\n")
+            logfile.write("prompt: " + prompt + "\n\n")
+            logfile.write("ai response:\n\n" + response_content + "\n}\n\n")
+
         # Return the result of command execution
         # False means commands were executed successfully without needing a new screenshot
         return take_new_screenshot
