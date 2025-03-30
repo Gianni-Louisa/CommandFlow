@@ -54,6 +54,7 @@ import datetime # Import datetime to log date and time for external logging
 script_dir = os.path.dirname(__file__)  # Path to the directory the script is in
 log_rel_path = "logs\\" + str(datetime.date.today()) + ".txt"   # Relative path to the log file, using current date
 log_abs_path = os.path.join(script_dir, log_rel_path)   # Join path to log file to path to current directory
+os.makedirs("logs", exist_ok=True)
 
 class ScreenPrompter:  # Define the ScreenPrompter class
     def __init__(self, api_key: str = None, model: str = "gpt-4o-2024-08-06"):  # Constructor with API key and model
@@ -195,6 +196,7 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             match = re.search(r"TYPE\((.*)\)", command)  # Match command pattern
             if match:  # If command matches
                 text = match.group(1).strip('"\'')  # Extract text to type
+                print(f"TYPE TEXT: {text}")
                 pyautogui.write(text)  # Type the specified text
                 print(f"Typed: {text}")  # Print typed text
 
@@ -209,9 +211,57 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                     pyautogui.press(key)  # Press the specified key
                 print(f"Pressed key: {key}")  # Print pressed key
 
+        elif command.startswith("WAIT"):
+            match = re.search(r"WAIT\((.*)\)", command)  # Match command pattern
+            if match:  # If command matches
+                sec = match.group(1).strip('"\'')  # Extract key to press
+                print(f"Waiting {sec}s")
+                time.sleep(int(sec))
+
         elif command.startswith("SCREENSHOT"):  # Check if command is to take a screenshot
             print("Taking a new screenshot...")  # Notify user that a new screenshot will be taken
             return True  # Indicate that a new screenshot is needed
+        
+        elif command.startswith("CREATE_SCRIPT"):
+
+            match = re.search(r"CREATE_SCRIPT\((.*)\)", command)  # Match command pattern
+            if match:  # If command matches
+                filename_timestamp = f"{datetime.datetime.now().strftime('%m-%d-%G_%H-%M')}"
+                filename = filename_timestamp + "__" + match.group(1).strip('"\'')  # Extract key to press
+            else:
+                raise ValueError(f"Invalid filename in:\n {command}")            
+            
+            # filepath = "C:/Users/CBenn/Documents/School/2025_Spring/Capstone/CommandFlow/output/scripts/test.py"
+
+            cmds = f"""
+            ```json
+            [
+                "PRESS_KEY(win+s)",
+                "TYPE(Visual Studio Code)",
+                "PRESS_KEY(enter)",
+                "WAIT(2)",
+                "PRESS_KEY(ctrl+n)",
+                "PRESS_KEY(ctrl+s)",
+                "WAIT(1)",
+                "TYPE({filename})",
+                "PRESS_KEY(enter)",
+                "WAIT(2)",
+
+                "TYPE(import numpy as np)",
+                "PRESS_KEY(enter)",
+                "PRESS_KEY(ctrl+s)"
+            ]
+            ```
+            """
+            # "TYPE({os.getcwd()}\output\scripts\{filename})",
+
+            self.execute_commands(cmds)
+            print("Done creating script")
+
+        elif command.startswith("EXECUTE_SCRIPT"):
+            pass
+
+        else: raise ValueError(f"Invalid command {command}")
 
         return False  # Indicate no new screenshot is needed
 
@@ -297,7 +347,7 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
         return few_shot_prompts
 
-    def createCoordinateExamplePrompt(self, example_img_path):
+    def createCoordinateExamplePrompts(self, example_img_path):
         examples = []
 
         #### Create coordinate example prompt
@@ -372,6 +422,10 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                     * PRESS_KEY(ctrl+c)  # Copy
                     * PRESS_KEY(ctrl+v)  # Paste
                 5. SCREENSHOT() - Take a new screenshot to see the updated screen state
+                6. CREATE_SCRIPT(filename) - Create a new Python script with the "filename" provided inside of Visual Studio Code
+                - This should be the **FIRST** command executed whenever you are asked to create a script
+                - This will open a Visual Studio Code window and create a new Python program inside of it
+                7. EXECUTE_SCRIPT(script_path) - Execute the Python script at the provided "script_path" location
 
                 IMPORTANT: Keyboard shortcuts are often the most efficient way to complete tasks. Consider using them when appropriate.
 
@@ -413,7 +467,7 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
             # Get coordinate example
             coord_example_img_path = "imgs/example_screenshot.jpg"
-            coord_example_prompts = self.createCoordinateExamplePrompt(coord_example_img_path)
+            coord_example_prompts = self.createCoordinateExamplePrompts(coord_example_img_path)
 
 
         # Create the main user prompt to define what the model will actually be trying to acheve
@@ -533,8 +587,10 @@ if __name__ == '__main__':  # Main execution block
         # Use the command passed as argument
         IMG_PROMPT = " ".join(sys.argv[1:])
     else:
-        # Default prompt if none provided
-        IMG_PROMPT = "Open Windows Search"  # Define the image prompt
+        # Define the default prompt if none provided
+        IMG_PROMPT = "Open Windows Search"
+
+    IMG_PROMPT = "Create a new Python script"
     
     print(f"Processing task: {IMG_PROMPT}")  # Print the task being processed
 
