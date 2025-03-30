@@ -12,6 +12,7 @@ Revision History:
 - 2/27/2025: Modified prompt output handling (Christopher Gronewold)
 - 3/16/2025: Added functionality for command text to execute commands (Christopher Gronewold)
 - 3/30/2025: Added task automation(Gianni Louisa)
+- 3/30/2025: Added additional commands for creating/executing programs
 
 Preconditions:
 - Valid OpenAI API key must be provided
@@ -214,9 +215,9 @@ class ScreenPrompter:  # Define the ScreenPrompter class
         elif command.startswith("WAIT"):
             match = re.search(r"WAIT\((.*)\)", command)  # Match command pattern
             if match:  # If command matches
-                sec = match.group(1).strip('"\'')  # Extract key to press
+                sec = match.group(1).strip('"\'')  # Extract how long to wait
                 print(f"Waiting {sec}s")
-                time.sleep(int(sec))
+                time.sleep(int(sec)) # sleep specified number of seconds
 
         elif command.startswith("SCREENSHOT"):  # Check if command is to take a screenshot
             print("Taking a new screenshot...")  # Notify user that a new screenshot will be taken
@@ -226,13 +227,28 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
             match = re.search(r"CREATE_SCRIPT\((.*)\)", command)  # Match command pattern
             if match:  # If command matches
-                filename_timestamp = f"{datetime.datetime.now().strftime('%m-%d-%G_%H-%M')}"
-                filename = filename_timestamp + "__" + match.group(1).strip('"\'')  # Extract key to press
+
+                # Create filename
+                filename_timestamp = f"{datetime.datetime.now().strftime('%m-%d-%G_%H-%M')}" # get datetime of when program was created
+                filename = filename_timestamp + "__" + match.group(1).strip('"\'')  # create filename by adding the passed in filename to the timestamp string
+                
+                cmd_flow_dir = os.getcwd() # get absolute working dir
+                filepath = rf"{cmd_flow_dir}\output\scripts\{filename}" # get absolute path of the file
+
+                # Need to go through and replace all instances of "\" with "\\" to ensure json readibilty
+                esc_filepath = ""
+                for ch in filepath:
+                    if ch == "\\": # if SINGLE backslash
+                        esc_filepath = esc_filepath + "\\\\" # add DOUBLE backslash to the new string
+                    else: # if regular char just add it to the new string
+                        esc_filepath = esc_filepath + ch
+
+                filepath = esc_filepath
+
             else:
                 raise ValueError(f"Invalid filename in:\n {command}")            
             
-            # filepath = "C:/Users/CBenn/Documents/School/2025_Spring/Capstone/CommandFlow/output/scripts/test.py"
-
+            # Create the commands that need to be executed to create a new script file 
             cmds = f"""
             ```json
             [
@@ -243,7 +259,7 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                 "PRESS_KEY(ctrl+n)",
                 "PRESS_KEY(ctrl+s)",
                 "WAIT(1)",
-                "TYPE({filename})",
+                "TYPE({filepath})",
                 "PRESS_KEY(enter)",
                 "WAIT(2)",
 
@@ -253,9 +269,9 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             ]
             ```
             """
-            # "TYPE({os.getcwd()}\output\scripts\{filename})",
-
+            # Execute the commands to create a script
             self.execute_commands(cmds)
+            
             print("Done creating script")
 
         elif command.startswith("EXECUTE_SCRIPT"):
