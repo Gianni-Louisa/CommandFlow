@@ -12,6 +12,7 @@ Revision History:
 - 3/2/2025 (Ethan Dirkes): Added image to record button and label to display detected speech
 - 3/2/2025: Commented code
 - 3/12/2025: Adjusted GUI and adjusted model
+- 3/30/2025: Added task automation and moved mouse commands
 
 Preconditions:
 - OpenAI's whisper library must be installed
@@ -35,6 +36,9 @@ import queue  # Import queue for thread-safe data exchange
 from concurrent.futures import ThreadPoolExecutor  # Import ThreadPoolExecutor for managing thread pools for background tasks
 import torch  # Import PyTorch to check for CUDA availability and GPU support
 from window_detection import get_window_snapshot, get_context_for_speech_command  # Import custom functions for window detection and context analysis
+import time  # Import time module for task tracking
+import subprocess  # Import subprocess module for running external scripts
+import webbrowser  # Import webbrowser module for opening websites
 
 try:
     import pyautogui  # Try to import pyautogui module for mouse and keyboard control
@@ -56,6 +60,174 @@ print("Loading Whisper model...")  # Print a message indicating that the Whisper
 model = WhisperModel("small.en", device=device, compute_type="int8")  # Initialize the Whisper speech recognition model with English language, small size, and int8 quantization
 print("Model loaded!")  # Print a message indicating that the model has been loaded successfully
 
+# Global variables for tracking active tasks
+active_tasks = {}  # Dictionary to store active tasks and their status
+task_id_counter = 0  # Counter for generating unique task IDs
+
+# Function to update the task status display
+def update_task_status_display():
+    """
+    Update the task status display to show currently active tasks
+    """
+    # Clear the current display
+    for widget in task_status_content.winfo_children():
+        widget.destroy()
+        
+    # Check if there are any active tasks
+    if not active_tasks:
+        no_tasks_label = tk.Label(
+            task_status_content,
+            text="No active tasks",
+            font=("Segoe UI", 10),
+            bg="#1a2332",
+            fg="#7f8c8d",
+            anchor=tk.W,
+            padx=5,
+            pady=3
+        )
+        no_tasks_label.pack(fill=tk.X, padx=5, pady=2)
+        return
+        
+    # Add a label for each active task
+    for task_id, task_info in active_tasks.items():
+        task_frame = tk.Frame(task_status_content, bg="#1a2332", padx=0, pady=0)
+        task_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        # Status color based on status type
+        status_colors = {
+            "processing": "#3498db",  # Blue
+            "success": "#2ecc71",     # Green
+            "error": "#e74c3c",       # Red
+            "completed": "#f39c12"    # Orange (for completed tasks waiting to be cleared)
+        }
+        
+        # Status indicator (colored dot)
+        status_indicator = tk.Label(
+            task_frame,
+            text="●",
+            font=("Segoe UI", 12),
+            bg="#1a2332",
+            fg=status_colors.get(task_info["status"], "#7f8c8d"),
+            width=2,
+            anchor=tk.W
+        )
+        status_indicator.pack(side=tk.LEFT)
+        
+        # Task description label
+        task_label = tk.Label(
+            task_frame,
+            text=task_info["description"][:40] + "..." if len(task_info["description"]) > 40 else task_info["description"],
+            font=("Segoe UI", 10),
+            bg="#1a2332",
+            fg="white",
+            anchor=tk.W
+        )
+        task_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Add tooltip with full task description
+        def show_tooltip(event, text=task_info["description"]):
+            tooltip = tk.Toplevel(root)
+            tooltip.wm_overrideredirect(True)
+            tooltip.geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            tooltip_label = tk.Label(tooltip, text=text, justify=tk.LEFT, 
+                                    background="#1a2332", foreground="white", 
+                                    relief=tk.SOLID, borderwidth=1, padx=5, pady=2)
+            tooltip_label.pack()
+            
+            def hide_tooltip(_):
+                tooltip.destroy()
+                
+            task_label.bind("<Leave>", hide_tooltip)
+            
+        task_label.bind("<Enter>", show_tooltip)
+        
+        # Status label
+        status_text = task_info.get("status_message", task_info["status"].capitalize())
+        status_label = tk.Label(
+            task_frame,
+            text=status_text,
+            font=("Segoe UI", 10),
+            bg="#1a2332",
+            fg=status_colors.get(task_info["status"], "#7f8c8d"),
+            anchor=tk.E,
+            width=12
+        )
+        status_label.pack(side=tk.RIGHT)
+
+# Function to add or update a task in the task tracker
+def track_task(description, status="processing", status_message=None):
+    """
+    Add or update a task in the task tracker
+    
+    Args:
+        description (str): Description of the task
+        status (str): Status of the task - 'processing', 'success', 'error', or 'completed'
+        status_message (str, optional): Optional status message to display
+    
+    Returns:
+        int: The task ID assigned to this task
+    """
+    global task_id_counter
+    
+    # Check if this task already exists (by description)
+    existing_task_id = None
+    for task_id, task_info in active_tasks.items():
+        if task_info["description"] == description:
+            existing_task_id = task_id
+            break
+    
+    if existing_task_id is not None:
+        # Update existing task
+        active_tasks[existing_task_id]["status"] = status
+        if status_message:
+            active_tasks[existing_task_id]["status_message"] = status_message
+        task_id = existing_task_id
+    else:
+        # Create new task
+        task_id = task_id_counter
+        task_id_counter += 1
+        active_tasks[task_id] = {
+            "description": description,
+            "status": status,
+            "start_time": time.time(),
+            "status_message": status_message or status.capitalize()
+        }
+    
+    # Update the task status display
+    feedback_display.after(0, update_task_status_display)
+    
+    return task_id
+
+# Function to remove a task from the tracker
+def remove_task(task_id):
+    """
+    Remove a task from the task tracker
+    
+    Args:
+        task_id (int): The ID of the task to remove
+    """
+    if task_id in active_tasks:
+        del active_tasks[task_id]
+        feedback_display.after(0, update_task_status_display)
+
+# Function to clear completed tasks
+def clear_completed_tasks():
+    """
+    Remove all completed tasks from the task tracker
+    """
+    completed_task_ids = [task_id for task_id, task_info in active_tasks.items() 
+                         if task_info["status"] in ["success", "completed", "error"]]
+    
+    for task_id in completed_task_ids:
+        remove_task(task_id)
+    
+    # Also schedule a periodic cleanup for any tasks that are older than 5 minutes
+    current_time = time.time()
+    stale_task_ids = [task_id for task_id, task_info in active_tasks.items() 
+                     if current_time - task_info.get("start_time", current_time) > 300]  # 5 minutes
+    
+    for task_id in stale_task_ids:
+        remove_task(task_id)
 
 def preprocess_audio(audio_data, sample_rate=16000):
     """
@@ -73,65 +245,160 @@ def preprocess_audio(audio_data, sample_rate=16000):
         return audio_data  # Return the original audio data if processing fails
 
 
-def process_voice_command(command):
+def process_voice_command(command_text):
     """
-    # Function docstring describing what process_voice_command does
-    process_voice_command(): Function to perform the command that was heard by the audio listener
+    Process a voice command from the text input
+    
+    Args:
+        command_text (str): The text of the command to process
     """
-    command = command.lower().strip()  # Normalize the command by converting to lowercase and removing whitespace
-    print(f"Processing command: {command}")  # Print the command being processed for debugging
-    move_mouse_commands = ["move mouse", "move the mouse"]  # Define list of commands related to mouse movement for easier matching
-    exit_commands = ["exit window", "close window"]  # Define list of commands related to closing windows for easier matching
-    task_commands = ["task", "automate", "perform task"]  # Define list of commands related to task automation
-
+    # Normalize the command text (lowercase, remove extra spaces, etc.)
+    command_text = command_text.lower().strip()
+    
+    print(f"DEBUG: Processing voice command: '{command_text}'")
+    
     try:
-        # Update feedback UI to show command being processed
-        update_feedback_display("Processing command...", "processing")
+        # If there's no actual command, just return
+        if not command_text:
+            return
+            
+        # Cancel any pending clear operations first to avoid race conditions
+        for after_id in feedback_display.tk.call('after', 'info'):
+            try:
+                feedback_display.after_cancel(int(after_id))
+                print(f"DEBUG: Cancelled after task with ID {after_id}")
+            except ValueError:
+                pass  # Not a numeric ID
+                
+        # Show a processing message - make sure it won't auto-clear
+        msg = "Processing command..."
+        print(f"DEBUG: Setting processing message: '{msg}'")
+        update_feedback_display(msg, "processing", auto_clear=False)
         
-        # Check if this is a task automation command
-        if any(cmd in command for cmd in task_commands):
-            status_label.after(0, lambda: status_label.config(text="Launching task automation..."))
-            # Extract the actual task description from the command
-            task_description = command
-            for prefix in task_commands:
-                if command.startswith(prefix):
-                    task_description = command[len(prefix):].strip()
-                    break
-            
-            # Launch the task automation in a separate thread to avoid blocking the GUI
-            executor.submit(launch_task_automation, task_description)
-            update_feedback_display("Task automation launched", "success")
-            return True
-            
-        if any(cmd in command for cmd in move_mouse_commands):  # Check if any of the mouse movement commands are in the recognized text
-            if "top right" in command:  # Check if "top right" is specified in the command
-                status_label.after(0, lambda: status_label.config(text="Moving mouse to top right"))  # Use tkinter's after method to update status label safely from another thread
-                screen_width, _ = pyautogui.size()  # Get the screen width and height (only using width here)
-                pyautogui.moveTo(screen_width - 1, 0, duration=0.5)  # Move the mouse to the top-right corner of the screen over 0.5 seconds
-                update_feedback_display("Command executed successfully", "success")
-                return True  # Return True to indicate command was handled
+        # Check for different command types and execute the corresponding action
+        
+        # Task automation command - starts with 'task:'
+        if command_text.startswith('task:'):
+            task_description = command_text[5:].strip()
+            if task_description:
+                print(f"DEBUG: Detected task automation command: '{task_description}'")
+                # Handle task automation in a separate thread to avoid blocking the GUI
+                handle_task_automation(task_description)
             else:
-                status_label.after(0, lambda: status_label.config(text="Moving mouse to default icon position"))  # If no specific location mentioned, move to default position
-                icon_x, icon_y = 200, 200  # Define default position coordinates
-                pyautogui.moveTo(icon_x, icon_y, duration=0.5)  # Move the mouse to the default position over 0.5 seconds
-                update_feedback_display("Command executed successfully", "success")
-                return True  # Return True to indicate command was handled
-
-        if any(cmd in command for cmd in exit_commands):  # Check if any window closing commands are in the recognized text
-            status_label.after(0, lambda: status_label.config(text="Exiting current window"))  # Update status label to show we're exiting the window
-            pyautogui.hotkey("alt", "f4")  # Simulate Alt+F4 keyboard shortcut to close the active window
-            update_feedback_display("Command executed successfully", "success")
-            return True  # Return True to indicate command was handled
-
-        # If we reach here, no command was recognized
-        update_feedback_display("No matching command found", "error")
-        return False  # Return False if no matching command was found
-
+                # Cancel any pending clear operations
+                for after_id in feedback_display.tk.call('after', 'info'):
+                    try:
+                        feedback_display.after_cancel(int(after_id))
+                    except ValueError:
+                        pass  # Not a numeric ID
+                
+                error_msg = "No task description provided. Please specify a task after 'task:'"
+                print(f"DEBUG: {error_msg}")
+                update_feedback_display(error_msg, "error")
+                
+        # Open website command - starts with 'open:'
+        elif command_text.startswith('open:'):
+            website = command_text[5:].strip()
+            if website:
+                # Track this command
+                task_id = track_task(f"Open website: {website}", "processing")
+                
+                print(f"DEBUG: Opening website: {website}")
+                if not website.startswith(('http://', 'https://')):
+                    website = 'https://' + website
+                # Open the website in the default browser
+                webbrowser.open(website)
+                
+                # Cancel any pending clear operations
+                for after_id in feedback_display.tk.call('after', 'info'):
+                    try:
+                        feedback_display.after_cancel(int(after_id))
+                    except ValueError:
+                        pass  # Not a numeric ID
+                
+                success_msg = f"Opening {website}"
+                print(f"DEBUG: {success_msg}")
+                update_feedback_display(success_msg, "success")
+                
+                # Update task status
+                track_task(f"Open website: {website}", "success", "Opened")
+                
+                # Schedule task removal after a delay
+                feedback_display.after(5000, lambda: remove_task(task_id))
+                
+            else:
+                # Cancel any pending clear operations
+                for after_id in feedback_display.tk.call('after', 'info'):
+                    try:
+                        feedback_display.after_cancel(int(after_id))
+                    except ValueError:
+                        pass  # Not a numeric ID
+                
+                error_msg = "No website provided. Please specify a website after 'open:'"
+                print(f"DEBUG: {error_msg}")
+                update_feedback_display(error_msg, "error")
+                
+        # Move mouse command
+        elif "move mouse" in command_text or "move the mouse" in command_text:
+            # Track this command
+            task_id = track_task("Move mouse", "processing")
+            
+            if "top right" in command_text:
+                status_label.after(0, lambda: status_label.config(text="Moving mouse to top right"))
+                screen_width, _ = pyautogui.size()
+                pyautogui.moveTo(screen_width - 1, 0, duration=0.5)
+                
+                # Update task status
+                track_task("Move mouse", "success", "Top Right")
+                
+                update_feedback_display("Mouse moved to top right", "success")
+            else:
+                status_label.after(0, lambda: status_label.config(text="Moving mouse to default position"))
+                icon_x, icon_y = 200, 200
+                pyautogui.moveTo(icon_x, icon_y, duration=0.5)
+                
+                # Update task status
+                track_task("Move mouse", "success", "Default Pos")
+                
+                update_feedback_display("Mouse moved to default position", "success")
+                
+            # Schedule task removal after a delay
+            feedback_display.after(5000, lambda: remove_task(task_id))
+            
+        # Close window command
+        elif "exit window" in command_text or "close window" in command_text:
+            # Track this command
+            task_id = track_task("Close window", "processing")
+            
+            status_label.after(0, lambda: status_label.config(text="Exiting current window"))
+            pyautogui.hotkey("alt", "f4")
+            
+            # Update task status
+            track_task("Close window", "success", "Closed")
+            
+            update_feedback_display("Window closed", "success")
+            
+            # Schedule task removal after a delay
+            feedback_display.after(5000, lambda: remove_task(task_id))
+            
+        # Command not recognized
+        else:
+            # If none of the direct commands matched, try task automation
+            print(f"DEBUG: No direct command match, attempting task automation for: '{command_text}'")
+            handle_task_automation(command_text)
+            
     except Exception as e:
-        print(f"Error in command processing: {e}")  # Print error message if any exception occurs during command processing
-        status_label.after(0, lambda: status_label.config(text=f"Command error: {str(e)}"))  # Update status label to show the error
-        update_feedback_display("Command execution failed", "error")
-        return False  # Return False to indicate command handling failed
+        print(f"Error processing command: {e}")
+        # Cancel any pending clear operations
+        for after_id in feedback_display.tk.call('after', 'info'):
+            try:
+                feedback_display.after_cancel(int(after_id))
+            except ValueError:
+                pass  # Not a numeric ID
+        
+        error_msg = f"Error processing command: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        update_feedback_display(error_msg, "error")
 
 
 def launch_task_automation(task_description):
@@ -141,7 +408,15 @@ def launch_task_automation(task_description):
     Args:
         task_description (str): The description of the task to automate
     """
+    # Add the task to the tracker
+    task_id = track_task(f"Task: {task_description}", "processing", "Starting...")
+    
+    # This function is already being called in a separate thread by executor.submit(),
+    # so we don't need to create another thread here. However, we'll make sure feedback
+    # stays visible during the task execution.
+    
     try:
+        print(f"DEBUG: Starting launch_task_automation for '{task_description}'")
         # Import the ScreenPrompter class from task_creation_with_command_following
         from task_creation_with_command_following import ScreenPrompter
         
@@ -151,38 +426,143 @@ def launch_task_automation(task_description):
             with open("api_key.txt", "r") as f:
                 api_key = f.read().strip()
         except Exception as e:
-            print(f"Error reading API key: {e}")
-            update_feedback_display("Failed to read API key for task automation", "error")
+            print(f"ERROR reading API key: {e}")
+            
+            # Cancel any pending clear operations first
+            for after_id in feedback_display.tk.call('after', 'info'):
+                try:
+                    feedback_display.after_cancel(int(after_id))
+                    print(f"DEBUG: Cancelled after task with ID {after_id}")
+                except ValueError:
+                    pass  # Not a numeric ID
+            
+            error_msg = "Failed to read API key for task automation"
+            print(f"DEBUG: Setting error message: '{error_msg}'")
+            feedback_display.after(0, lambda: update_feedback_display(error_msg, "error", auto_clear=False))
+            feedback_display.after(3000, clear_feedback_display)
+            
+            # Update task status
+            track_task(f"Task: {task_description}", "error", "API Key Error")
+            
             return
         
         if not api_key:
-            update_feedback_display("No API key found for task automation", "error")
-            return
+            # Cancel any pending clear operations first
+            for after_id in feedback_display.tk.call('after', 'info'):
+                try:
+                    feedback_display.after_cancel(int(after_id))
+                    print(f"DEBUG: Cancelled after task with ID {after_id}")
+                except ValueError:
+                    pass  # Not a numeric ID
             
+            error_msg = "No API key found for task automation"
+            print(f"DEBUG: Setting error message: '{error_msg}'")
+            feedback_display.after(0, lambda: update_feedback_display(error_msg, "error", auto_clear=False))
+            feedback_display.after(3000, clear_feedback_display)
+            
+            # Update task status
+            track_task(f"Task: {task_description}", "error", "No API Key")
+            
+            return
+        
         # Create an instance of ScreenPrompter and send the request
+        print(f"DEBUG: Creating ScreenPrompter instance with API key")
         screen_prompter = ScreenPrompter(api_key)
         
-        # Update UI to show we're starting task automation
-        update_feedback_display(f"Starting task: {task_description}", "processing")
+        # Cancel any pending clear operations first
+        for after_id in feedback_display.tk.call('after', 'info'):
+            try:
+                feedback_display.after_cancel(int(after_id))
+                print(f"DEBUG: Cancelled after task with ID {after_id}")
+            except ValueError:
+                pass  # Not a numeric ID
         
-        # Send the request to the model
-        screen_prompter.sendRequest(task_description)
+        # Update UI to show we're starting task automation - ensure it's done in the main thread
+        processing_msg = f"Starting task: {task_description}"
+        print(f"DEBUG: Setting feedback to '{processing_msg}'")
+        feedback_display.after(0, lambda: update_feedback_display(processing_msg, "processing", auto_clear=False))
         
-        # Update UI when task is complete
-        update_feedback_display("Task automation completed", "success")
+        # Update task status
+        track_task(f"Task: {task_description}", "processing", "Processing")
+        
+        # Send the request to the model - this will block until the task is complete
+        print(f"DEBUG: Calling ScreenPrompter.sendRequest with task: '{task_description}'")
+        result = screen_prompter.sendRequest(task_description)
+        print(f"DEBUG: ScreenPrompter.sendRequest returned: {result}")
+        
+        # Cancel any pending clear operations before updating with result
+        for after_id in feedback_display.tk.call('after', 'info'):
+            try:
+                feedback_display.after_cancel(int(after_id))
+                print(f"DEBUG: Cancelled after task with ID {after_id}")
+            except ValueError:
+                pass  # Not a numeric ID
+        
+        # Check if command execution was successful
+        if result is not None and isinstance(result, bool) and result is False:
+            # If commands were executed successfully without needing a new screenshot
+            completion_msg = "Task automation completed successfully"
+            print(f"DEBUG: Setting completion message: '{completion_msg}'")
+            feedback_display.after(0, lambda: update_feedback_display(completion_msg, "success", auto_clear=False))
+            
+            # Update task status
+            track_task(f"Task: {task_description}", "success", "Completed")
+            
+        elif result is not None and isinstance(result, bool) and result is True:
+            # If a new screenshot was needed (which means commands were executed)
+            completion_msg = "Task automation completed with new screenshot"
+            print(f"DEBUG: Setting completion message: '{completion_msg}'")
+            feedback_display.after(0, lambda: update_feedback_display(completion_msg, "success", auto_clear=False))
+            
+            # Update task status
+            track_task(f"Task: {task_description}", "success", "Completed")
+            
+        else:
+            # Default success message if the return value is not as expected
+            completion_msg = "Task automation completed"
+            print(f"DEBUG: Setting completion message: '{completion_msg}'")
+            feedback_display.after(0, lambda: update_feedback_display(completion_msg, "success", auto_clear=False))
+            
+            # Update task status
+            track_task(f"Task: {task_description}", "success", "Completed")
+        
+        # Keep the success message visible for 3 seconds before clearing
+        print(f"DEBUG: Scheduling clear_feedback_display after 3000ms for '{completion_msg}'")
+        feedback_display.after(3000, clear_feedback_display)
+        
+        # Schedule task removal after a delay
+        feedback_display.after(10000, lambda: remove_task(task_id))
         
     except Exception as e:
-        print(f"Error in task automation: {e}")
-        update_feedback_display(f"Task automation error: {str(e)}", "error")
+        print(f"ERROR in run_task_in_thread: {e}")
+        
+        # Cancel any pending clear operations
+        for after_id in feedback_display.tk.call('after', 'info'):
+            try:
+                feedback_display.after_cancel(int(after_id))
+            except ValueError:
+                pass  # Not a numeric ID
+        
+        error_msg = f"Task automation error: {str(e)}"
+        print(f"DEBUG: Setting error message: '{error_msg}'")
+        feedback_display.after(0, lambda: update_feedback_display(error_msg, "error", auto_clear=False))
+        feedback_display.after(3000, clear_feedback_display)
+        
+        # Update task status
+        track_task(f"Task: {task_description}", "error", "Error")
+        
+        # Schedule task removal after a delay
+        feedback_display.after(10000, lambda: remove_task(task_id))
 
 
-def update_feedback_display(message, status_type):
+def update_feedback_display(message, status_type, auto_clear=True):
     """
     Update the feedback display with command execution status
     
     Args:
         message (str): The feedback message to display
         status_type (str): The type of status - 'processing', 'success', or 'error'
+        auto_clear (bool): Whether to automatically clear the feedback after a delay (for success messages)
     """
     # Define colors for different status types
     status_colors = {
@@ -194,38 +574,65 @@ def update_feedback_display(message, status_type):
     # Get the color for this status type
     color = status_colors.get(status_type, "#7f8c8d")
     
-    # Update the feedback display on the GUI thread
-    feedback_display.after(0, lambda: feedback_display.config(
-        text=message,
-        fg="white",
-        bg=color
-    ))
+    # Always use after() to ensure we're updating from the main thread
+    def update_display():
+        feedback_display.config(
+            text=message,
+            fg="white",
+            bg=color
+        )
+        
+    # Use after(0) to ensure the update happens in the main thread
+    feedback_display.after(0, update_display)
     
     # Log the feedback in console too
     print(f"Feedback ({status_type}): {message}")
     
-    # Clear the feedback after a delay for success messages
-    if status_type == "success":
-        feedback_display.after(3000, lambda: feedback_display.config(
+    # Clear the feedback after a delay for success messages if auto_clear is True
+    if status_type == "success" and auto_clear:
+        feedback_display.after(3000, clear_feedback_display)
+
+
+def clear_feedback_display():
+    """
+    Reset the feedback display to the default ready state
+    """
+    # Use a function to ensure thread safety
+    def update_display():
+        feedback_display.config(
             text="Ready for next command",
             fg="white",
             bg="#1a2332"
-        ))
+        )
+    
+    # Use after(0) to ensure the update happens in the main thread
+    feedback_display.after(0, update_display)
 
 
 def save_and_process_audio(audio_data):
     """
-    # Function docstring describing what save_and_process_audio does
-    save_and_process_audio(): Function to save the audio to a wav file and then process it
+    Save and process audio data from the microphone, transcribe it with Whisper,
+    and handle recognized voice commands.
+    
+    Args:
+        audio_data (numpy.ndarray): The audio data to process
     """
+    # Create a task to track audio processing
+    task_id = track_task("Processing audio", "processing", "Transcribing")
+    
     try:
-        update_feedback_display("Processing audio...", "processing")
+        # Ensure the processing message is displayed until we've finished recognition
+        print("DEBUG: Setting processing message for audio recognition")
+        update_feedback_display("Processing audio...", "processing", auto_clear=False)
+        
         processed_audio = preprocess_audio(audio_data)  # Preprocess the audio to enhance recognition quality
         with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_audio_file:  # Create a temporary WAV file with '.wav' extension that won't be immediately deleted
             temp_filename = temp_audio_file.name  # Get the name of the temporary file
             wavfile.write(temp_filename, SAMPLE_RATE, processed_audio)  # Write the processed audio data to the temporary file
 
-        print("Processing audio with Whisper...")  # Print status message about audio processing
+        print("DEBUG: Processing audio with Whisper...")  # Print status message about audio processing
+        track_task("Processing audio", "processing", "Recognizing")
+        
         segments, _ = model.transcribe(  # Transcribe the audio using the Whisper model and get the segments and info
             temp_filename,  # Path to the audio file
             beam_size=5,  # Beam search size for more accurate transcription
@@ -234,34 +641,193 @@ def save_and_process_audio(audio_data):
             no_speech_threshold=0.3  # Threshold for filtering out non-speech
         )
         text = " ".join([segment.text for segment in segments])  # Combine all segments into a single text string
+        
         if text.strip():  # Check if any text was recognized
-            print(f"Recognized text: {text}")  # Print the recognized text for debugging
+            print(f"DEBUG: Recognized text: {text}")  # Print the recognized text for debugging
             text_input.delete("1.0", tk.END)  # Delete all text in the text input widget
             text_input.insert("1.0", text)  # Insert the recognized text into the text input widget
-            update_feedback_display("Speech recognized", "success")
+            
+            # Update task status
+            track_task("Processing audio", "success", "Text recognized")
+            
+            update_feedback_display("Speech recognized", "success", auto_clear=True)
             context = get_context_for_speech_command(text)  # Get context to determine if this is likely a false positive
 
             if context.get("likely_false_positive"):  # Check if the recognition is likely a false positive based on context
-                print(f"Ignoring likely false recognition: {text}")  # Log that we're ignoring a likely false recognition
-                update_feedback_display("Ignored likely false recognition", "error")
+                print(f"DEBUG: Ignoring likely false recognition: {text}")  # Log that we're ignoring a likely false recognition
+                update_feedback_display("Ignored likely false recognition", "error", auto_clear=True)
+                
+                # Update task status
+                track_task("Processing audio", "error", "False positive")
+                
+                # Schedule task removal after a delay
+                feedback_display.after(5000, lambda: remove_task(task_id))
             else:
-                process_voice_command(text)  # Process the recognized text as a command
-                # Then run the task creation script with the recognized text
-                import subprocess
-                subprocess.run(['python', 'task_creation_with_command_following.py', text])
+                # Process the recognized text as a command - the function will add its own task tracking
+                process_voice_command(text)
+                
+                # Schedule task removal after a delay - we don't need to show both the audio processing
+                # and the command processing tasks simultaneously
+                feedback_display.after(1000, lambda: remove_task(task_id))
         else:
-            print("No speech detected")  # Log that no speech was detected
+            print("DEBUG: No speech detected")  # Log that no speech was detected
             text_input.delete("1.0", tk.END)  # Clear the text input widget
             text_input.insert("1.0", "No speech detected")  # Display "No speech detected" message in the text input widget
-            update_feedback_display("No speech detected", "error")
+            update_feedback_display("No speech detected", "error", auto_clear=True)
+            
+            # Update task status
+            track_task("Processing audio", "error", "No speech")
+            
+            # Schedule task removal after a delay
+            feedback_display.after(5000, lambda: remove_task(task_id))
 
         os.unlink(temp_filename)  # Delete the temporary file to clean up
 
     except Exception as e:
-        print(f"Error in audio processing: {e}")  # Print error message if any exception occurs during audio processing
+        print(f"ERROR in audio processing: {e}")  # Print error message if any exception occurs during audio processing
         text_input.delete("1.0", tk.END)  # Clear the text input widget
         text_input.insert("1.0", f"Processing error: {str(e)}")  # Display the error message in the text input widget
-        update_feedback_display("Audio processing error", "error")
+        update_feedback_display("Audio processing error", "error", auto_clear=True)
+        
+        # Update task status
+        track_task("Processing audio", "error", "Error")
+        
+        # Schedule task removal after a delay
+        feedback_display.after(5000, lambda: remove_task(task_id))
+
+
+def handle_task_automation(task_description):
+    """
+    Handle task automation by executing the task_creation_with_command_following.py script in a subprocess
+    and updating the UI accordingly.
+    
+    Args:
+        task_description (str): The description of the task to automate
+    """
+    # Add the task to the tracker
+    task_id = track_task(f"Task: {task_description}", "processing", "Starting...")
+    
+    print(f"DEBUG: handle_task_automation called with task: '{task_description}'")
+    
+    # Define a nested function to run the task automation in a separate thread
+    def run_task_subprocess():
+        try:
+            # Cancel any pending clear operations to avoid race conditions
+            print("DEBUG: Cancelling any pending 'after' calls before setting 'Handing off...' message")
+            for after_id in feedback_display.tk.call('after', 'info'):
+                try:
+                    feedback_display.after_cancel(int(after_id))
+                    print(f"DEBUG: Cancelled after task with ID {after_id}")
+                except ValueError:
+                    pass  # Not a numeric ID
+            
+            # Update the UI to show we're handing off to task automation
+            processing_msg = "Handing off to task automation..."
+            print(f"DEBUG: Setting processing message: '{processing_msg}'")
+            feedback_display.after(0, lambda: update_feedback_display(processing_msg, "processing", auto_clear=False))
+            
+            # Update task status
+            track_task(f"Task: {task_description}", "processing", "Processing")
+            
+            # Prepare the subprocess command to run task_creation_with_command_following.py
+            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "task_creation_with_command_following.py")
+            print(f"DEBUG: Task script path: {script_path}")
+            
+            # Run the subprocess and capture its output
+            command = ["python", script_path, task_description]
+            print(f"DEBUG: Running subprocess with command: {command}")
+            
+            # Using subprocess.run with timeout to prevent hanging
+            try:
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=600  # 10-minute timeout
+                )
+                
+                print(f"DEBUG: Subprocess completed with return code: {result.returncode}")
+                print(f"DEBUG: Subprocess stdout: {result.stdout}")
+                print(f"DEBUG: Subprocess stderr: {result.stderr}")
+                
+                # Cancel any pending clear operations before updating with the result
+                for after_id in feedback_display.tk.call('after', 'info'):
+                    try:
+                        feedback_display.after_cancel(int(after_id))
+                        print(f"DEBUG: Cancelled after task with ID {after_id}")
+                    except ValueError:
+                        pass  # Not a numeric ID
+                
+                # Check if the task completed successfully
+                if result.returncode == 0:
+                    success_msg = "Task automation completed successfully"
+                    print(f"DEBUG: Setting success message: '{success_msg}'")
+                    feedback_display.after(0, lambda: update_feedback_display(success_msg, "success", auto_clear=False))
+                    
+                    # Update task status
+                    track_task(f"Task: {task_description}", "success", "Completed")
+                    
+                else:
+                    error_msg = f"Task automation failed with code {result.returncode}"
+                    print(f"DEBUG: Setting error message: '{error_msg}'")
+                    feedback_display.after(0, lambda: update_feedback_display(error_msg, "error", auto_clear=False))
+                    
+                    # Update task status
+                    track_task(f"Task: {task_description}", "error", f"Failed: {result.returncode}")
+                
+                # Keep the final message visible for 3 seconds before clearing
+                print(f"DEBUG: Scheduling message clear in 3 seconds")
+                feedback_display.after(3000, clear_feedback_display)
+                
+                # Schedule task removal after a delay
+                feedback_display.after(10000, lambda: remove_task(task_id))
+                
+            except subprocess.TimeoutExpired:
+                print("DEBUG: Subprocess timed out after 10 minutes")
+                
+                # Cancel any pending clear operations
+                for after_id in feedback_display.tk.call('after', 'info'):
+                    try:
+                        feedback_display.after_cancel(int(after_id))
+                        print(f"DEBUG: Cancelled after task with ID {after_id}")
+                    except ValueError:
+                        pass  # Not a numeric ID
+                
+                timeout_msg = "Task automation timed out after 10 minutes"
+                print(f"DEBUG: Setting timeout message: '{timeout_msg}'")
+                feedback_display.after(0, lambda: update_feedback_display(timeout_msg, "error", auto_clear=False))
+                feedback_display.after(3000, clear_feedback_display)
+                
+                # Update task status
+                track_task(f"Task: {task_description}", "error", "Timeout")
+                
+                # Schedule task removal after a delay
+                feedback_display.after(10000, lambda: remove_task(task_id))
+                
+        except Exception as e:
+            print(f"ERROR in run_task_subprocess: {e}")
+            
+            # Cancel any pending clear operations
+            for after_id in feedback_display.tk.call('after', 'info'):
+                try:
+                    feedback_display.after_cancel(int(after_id))
+                    print(f"DEBUG: Cancelled after task with ID {after_id}")
+                except ValueError:
+                    pass  # Not a numeric ID
+            
+            error_msg = f"Task automation error: {str(e)}"
+            print(f"DEBUG: Setting error message: '{error_msg}'")
+            feedback_display.after(0, lambda: update_feedback_display(error_msg, "error", auto_clear=False))
+            feedback_display.after(3000, clear_feedback_display)
+            
+            # Update task status
+            track_task(f"Task: {task_description}", "error", "Error")
+            
+            # Schedule task removal after a delay
+            feedback_display.after(10000, lambda: remove_task(task_id))
+    
+    # Start the task in a separate thread to avoid blocking the GUI
+    threading.Thread(target=run_task_subprocess, daemon=True).start()
 
 
 class AudioProcessor:
@@ -350,8 +916,8 @@ def toggle_record():
         try:
             listening_event.set()  # Enable listening by setting the event
             
-            # Update feedback display
-            update_feedback_display("Listening for commands...", "processing")
+            # Update feedback display with persistent "Listening for commands..." message
+            update_feedback_display("Listening for commands...", "processing", auto_clear=False)
             
             audio_processor = AudioProcessor()  # Create an AudioProcessor instance
 
@@ -362,20 +928,20 @@ def toggle_record():
         except Exception as e:
             print(f"Error starting recording: {e}")  # Print error message if any exception occurs when starting recording
             status_label.config(text=f"Error: {str(e)}")  # Update status label with the error message
-            update_feedback_display(f"Recording error: {str(e)}", "error")
+            update_feedback_display(f"Recording error: {str(e)}", "error", auto_clear=True)
             listening_event.clear()  # Clear the listening event to stop audio processing
     else:
         listening_event.clear()  # Stop listening by clearing the event
         status_label.config(text="Press button and speak")  # Update status label to show stopped state
         text_input.delete("1.0", tk.END)  # Clear the text input widget
         text_input.insert("1.0", "Stopped listening")  # Display "Stopped listening" message in the text input widget
-        update_feedback_display("Recording stopped", "success")
+        update_feedback_display("Recording stopped", "success", auto_clear=True)
         print("Stopped listening")  # Log that listening stopped
 
 
 root = tk.Tk()  # Create the main Tkinter window
 root.title("CommandFlow")  # Set the window title
-root.geometry("800x600")  # Increased height to accommodate all elements
+root.geometry("850x800")  # Increased height from 600 to 700 to accommodate all elements
 root.configure(bg="#212a38")  # Set the background color to dark blue
 
 main_container = tk.Frame(root, bg="#212a38", padx=0, pady=0)  # Create main container frame with no padding
@@ -392,7 +958,11 @@ app_title = tk.Label(sidebar_content, text="CommandFlow", font=("Segoe UI", 22, 
                     bg="#ffffff", fg="#212a38")
 app_title.pack(anchor=tk.W, pady=(0, 40))  # Pack the app title at the top of the sidebar with padding
 
-mic_image = tk.PhotoImage(file="GUI Resources/mic-icon.png")  # Load microphone icon image
+# Use an absolute path for the microphone icon
+script_dir = os.path.dirname(os.path.abspath(__file__))  # Get the directory where the script is located
+mic_icon_path = os.path.join(script_dir, "GUI Resources", "mic-icon.png")  # Create absolute path to the icon
+mic_image = tk.PhotoImage(file=mic_icon_path)  # Load microphone icon image
+
 record_button = tk.Button(sidebar_content, image=mic_image, text="",   # Create button with the microphone image
                          compound=tk.CENTER, bd=0, bg="#ffffff", 
                          activebackground="#ffffff", command=toggle_record,
@@ -411,7 +981,7 @@ content_title = tk.Label(content_area, text="Voice Recognition",   # Add title t
 content_title.pack(anchor=tk.W, pady=(0, 30))  # Pack the content title at the top of the content area with padding
 
 # Create transcript container with fixed height to prevent it from taking too much space
-transcript_frame = tk.Frame(content_area, bg="#1a2332", bd=0, height=250)  # Set fixed height
+transcript_frame = tk.Frame(content_area, bg="#1a2332", bd=0, height=280)  # Increased height to use more space
 transcript_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))  # Pack the transcript frame
 transcript_frame.pack_propagate(False)  # Prevent the frame from shrinking to fit its contents
 
@@ -488,7 +1058,7 @@ separator_feedback = tk.Frame(feedback_frame, height=1, bg="#2c3445")
 separator_feedback.pack(fill=tk.X)
 
 # Increase the height of the feedback content area
-feedback_content = tk.Frame(feedback_frame, bg="#1a2332", padx=25, pady=20, height=80)  # Increased height and padding
+feedback_content = tk.Frame(feedback_frame, bg="#1a2332", padx=25, pady=20, height=100)  # Increased height from 80 to 100
 feedback_content.pack(fill=tk.X)
 feedback_content.pack_propagate(False)  # Prevent shrinking
 
@@ -504,5 +1074,44 @@ feedback_display = tk.Label(feedback_content,
                           wraplength=400,
                           justify=tk.CENTER) # Center-justify the text
 feedback_display.pack(fill=tk.BOTH, expand=True)  # Fill both directions and expand
+
+# After the existing feedback section and before root.mainloop()
+# Create a task status section
+task_status_frame = tk.Frame(content_area, bg="#1a2332", bd=0)
+task_status_frame.pack(fill=tk.X, expand=False, pady=(0, 15))
+
+task_status_header = tk.Frame(task_status_frame, bg="#1a2332", padx=25, pady=15)
+task_status_header.pack(fill=tk.X)
+
+task_status_title = tk.Label(task_status_header, text="Active Tasks", 
+                            font=("Segoe UI", 14, "bold"), bg="#1a2332", fg="#ffffff")
+task_status_title.pack(side=tk.LEFT, anchor=tk.W)
+
+# Add a button to clear completed tasks
+clear_tasks_button = tk.Button(task_status_header, text="Clear Completed", 
+                              font=("Segoe UI", 10),
+                              bg="#2c3445", fg="white",
+                              activebackground="#3a4555", activeforeground="white",
+                              bd=0, padx=10, pady=2,
+                              command=clear_completed_tasks)
+clear_tasks_button.pack(side=tk.RIGHT, anchor=tk.E)
+
+separator_task_status = tk.Frame(task_status_frame, height=1, bg="#2c3445")
+separator_task_status.pack(fill=tk.X)
+
+# Content area for task status - will contain task items
+task_status_content = tk.Frame(task_status_frame, bg="#1a2332", padx=15, pady=10, height=120)  # Increased height from 100 to 120
+task_status_content.pack(fill=tk.X)
+task_status_content.pack_propagate(False)  # Prevent shrinking
+
+# Initialize the task status display
+update_task_status_display()
+
+# Setup a recurring task to clean up old completed tasks
+def schedule_task_cleanup():
+    clear_completed_tasks()
+    root.after(60000, schedule_task_cleanup)  # Run every minute
+
+root.after(60000, schedule_task_cleanup)  # Start the cleanup after 1 minute
 
 root.mainloop()  # Start the Tkinter main event loop

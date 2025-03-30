@@ -11,6 +11,7 @@ Revision History:
 - 2/14/2025: Initial creation of script (Gianni Louisa)
 - 2/27/2025: Modified prompt output handling (Christopher Gronewold)
 - 3/16/2025: Added functionality for command text to execute commands (Christopher Gronewold)
+- 3/30/2025: Added task automation(Gianni Louisa)
 
 Preconditions:
 - Valid OpenAI API key must be provided
@@ -303,7 +304,13 @@ class ScreenPrompter:  # Define the ScreenPrompter class
         cv2.imwrite(screenshot_path, img)  # Save the screenshot to the defined path
         print(f"Screenshot saved to: {screenshot_path}")  # Notify user of saved screenshot
 
-        example_img = cv2.imread("imgs/example_screenshot.jpg")  # Load example image for reference
+        # Check if example image exists before trying to load it
+        example_img_path = "imgs/example_screenshot.jpg"
+        example_img = None
+        has_example = os.path.exists(example_img_path)
+        if has_example:
+            example_img = cv2.imread(example_img_path)  # Load example image for reference
+        
         grid_img = self.overlayGridOnImg(img)  # Overlay grid on the screenshot
 
         grid_path = f"output/latest_grid_screenshot.jpg"  # Define path for the grid overlay image
@@ -312,11 +319,14 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
         b64_original = self.convImgToB64(img)  # Convert original image to base64
         b64_grid = self.convImgToB64(grid_img)  # Convert grid overlay image to base64
-        b64_example = self.convImgToB64(example_img)  # Convert example image to base64
-
-        user_message = {  # Create user message dictionary
-            "role": "user",  # Set role to user
-            "content": [  # Set content of the user message
+        
+        # Initialize user message content
+        user_message_content = []
+        
+        # Add example image only if it exists
+        if has_example and example_img is not None:
+            b64_example = self.convImgToB64(example_img)  # Convert example image to base64
+            user_message_content.extend([
                 {
                     "type": "text",  # Define type as text
                     "text": "Here's an example screenshot showing grid coordinates. It has a red dot at position (23.25, 13.75) and a blue X at position (26.80, 1.65). Use this as a reference for understanding how coordinates map to positions on the grid."  # Provide context for the example
@@ -324,20 +334,28 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                 {
                     "type": "image_url",  # Define type as image URL
                     "image_url": {"url": f"data:image/jpeg;base64,{b64_example}"}  # Embed example image in base64
-                },
-                {
-                    "type": "text",  # Define type as text
-                    "text": f"Please provide the commands needed to complete this task: {prompt}\n\nI'm providing two images: the original screenshot and the same screenshot with a grid overlay for coordinate reference. Include both reasoning and commands."  # Request commands from the model
-                },
-                {
-                    "type": "image_url",  # Define type as image URL
-                    "image_url": {"url": f"data:image/jpeg;base64,{b64_original}"}  # Embed original screenshot in base64
-                },
-                {
-                    "type": "image_url",  # Define type as image URL
-                    "image_url": {"url": f"data:image/jpeg;base64,{b64_grid}"}  # Embed grid overlay image in base64
                 }
-            ]
+            ])
+        
+        # Add task instructions and screenshots
+        user_message_content.extend([
+            {
+                "type": "text",  # Define type as text
+                "text": f"Please provide the commands needed to complete this task: {prompt}\n\nI'm providing two images: the original screenshot and the same screenshot with a grid overlay for coordinate reference. Include both reasoning and commands."  # Request commands from the model
+            },
+            {
+                "type": "image_url",  # Define type as image URL
+                "image_url": {"url": f"data:image/jpeg;base64,{b64_original}"}  # Embed original screenshot in base64
+            },
+            {
+                "type": "image_url",  # Define type as image URL
+                "image_url": {"url": f"data:image/jpeg;base64,{b64_grid}"}  # Embed grid overlay image in base64
+            }
+        ])
+        
+        user_message = {  # Create user message dictionary
+            "role": "user",  # Set role to user
+            "content": user_message_content  # Set content of the user message
         }
 
         self.messages.append(user_message)  # Append user message to messages list
@@ -367,7 +385,12 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
         take_new_screenshot = self.execute_commands(response_content)  # Execute commands from response
         if take_new_screenshot:  # If a new screenshot is needed
-            self.sendRequest(prompt, continue_conversation=True)  # Recursively send request
+            result = self.sendRequest(prompt, continue_conversation=True)  # Recursively send request
+            return result  # Return the result of the recursive call
+        
+        # Return the result of command execution
+        # False means commands were executed successfully without needing a new screenshot
+        return take_new_screenshot
 
 if __name__ == '__main__':  # Main execution block
     with open("api_key.txt", "r") as f:  # Open API key file
@@ -384,4 +407,5 @@ if __name__ == '__main__':  # Main execution block
     print(f"Processing task: {IMG_PROMPT}")
 
     screenPrompter = ScreenPrompter(API_KEY)  # Create an instance of ScreenPrompter
-    screenPrompter.sendRequest(IMG_PROMPT)  # Send request to the model
+    result = screenPrompter.sendRequest(IMG_PROMPT)  # Send request to the model
+    print(f"Command execution result: {result}")  # Print the result of command execution
