@@ -306,9 +306,9 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
         # Check if example image exists before trying to load it
         example_img_path = "imgs/example_screenshot.jpg"
-        example_img = None
-        has_example = os.path.exists(example_img_path)
-        if has_example:
+        example_img = None  # Initialize example image variable
+        has_example = os.path.exists(example_img_path)  # Check if example image exists
+        if has_example:  # If example image exists
             example_img = cv2.imread(example_img_path)  # Load example image for reference
         
         grid_img = self.overlayGridOnImg(img)  # Overlay grid on the screenshot
@@ -321,10 +321,10 @@ class ScreenPrompter:  # Define the ScreenPrompter class
         b64_grid = self.convImgToB64(grid_img)  # Convert grid overlay image to base64
         
         # Initialize user message content
-        user_message_content = []
+        user_message_content = []  # Initialize user message content list
         
         # Add example image only if it exists
-        if has_example and example_img is not None:
+        if has_example and example_img is not None:  # If example image exists and is not None
             b64_example = self.convImgToB64(example_img)  # Convert example image to base64
             user_message_content.extend([
                 {
@@ -404,7 +404,7 @@ if __name__ == '__main__':  # Main execution block
         # Default prompt if none provided
         IMG_PROMPT = "Open Windows Search"  # Define the image prompt
     
-    print(f"Processing task: {IMG_PROMPT}")
+    print(f"Processing task: {IMG_PROMPT}")  # Print the task being processed
 
     screenPrompter = ScreenPrompter(API_KEY)  # Create an instance of ScreenPrompter
     result = screenPrompter.sendRequest(IMG_PROMPT)  # Send request to the model
