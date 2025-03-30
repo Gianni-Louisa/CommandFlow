@@ -230,7 +230,8 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
                 # Create filename
                 filename_timestamp = f"{datetime.datetime.now().strftime('%m-%d-%G_%H-%M')}" # get datetime of when program was created
-                filename = filename_timestamp + "__" + match.group(1).strip('"\'')  # create filename by adding the passed in filename to the timestamp string
+                # filename = filename_timestamp + "__" + match.group(1).strip('"\'')  # create filename by adding the passed in filename to the timestamp string
+                filename = filename_timestamp + "__" + "generated_script.py"  # create filename by adding the passed in filename to the timestamp string
                 
                 cmd_flow_dir = os.getcwd() # get absolute working dir
                 filepath = rf"{cmd_flow_dir}\output\scripts\{filename}" # get absolute path of the file
@@ -243,7 +244,7 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                     else: # if regular char just add it to the new string
                         esc_filepath = esc_filepath + ch
 
-                filepath = esc_filepath
+                self.generated_script_filepath = esc_filepath
 
             else:
                 raise ValueError(f"Invalid filename in:\n {command}")            
@@ -259,11 +260,18 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                 "PRESS_KEY(ctrl+n)",
                 "PRESS_KEY(ctrl+s)",
                 "WAIT(1)",
-                "TYPE({filepath})",
+                "TYPE({self.generated_script_filepath})",
                 "PRESS_KEY(enter)",
                 "WAIT(2)",
 
                 "TYPE(import numpy as np)",
+                "PRESS_KEY(esc)",
+                "PRESS_KEY(enter)",
+                "TYPE(l = np.array([5, 1, 6, 2, 0]))",
+                "PRESS_KEY(enter)",
+                "TYPE(l.sort())",
+                "PRESS_KEY(enter)",
+                "TYPE(print(l))",
                 "PRESS_KEY(enter)",
                 "PRESS_KEY(ctrl+s)"
             ]
@@ -275,7 +283,23 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             print("Done creating script")
 
         elif command.startswith("EXECUTE_SCRIPT"):
-            pass
+            # Create the commands that need to be executed to create a new script file 
+            cmds = f"""
+            ```json
+            [
+                "PRESS_KEY(win+s)",
+                "TYPE(Command Prompt)",
+                "PRESS_KEY(enter)",
+                "WAIT(2)",
+                "TYPE(python {self.generated_script_filepath})",
+                "PRESS_KEY(enter)"
+            ]
+            ```
+            """
+
+            # Execute the commands to create a script
+            self.execute_commands(cmds)
+            
 
         else: raise ValueError(f"Invalid command {command}")
 
@@ -438,10 +462,12 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                     * PRESS_KEY(ctrl+c)  # Copy
                     * PRESS_KEY(ctrl+v)  # Paste
                 5. SCREENSHOT() - Take a new screenshot to see the updated screen state
-                6. CREATE_SCRIPT(filename) - Create a new Python script with the "filename" provided inside of Visual Studio Code
+                6. CREATE_SCRIPT() - Create a new Python script inside of Visual Studio Code
                 - This should be the **FIRST** command executed whenever you are asked to create a script
                 - This will open a Visual Studio Code window and create a new Python program inside of it
-                7. EXECUTE_SCRIPT(script_path) - Execute the Python script at the provided "script_path" location
+                7. EXECUTE_SCRIPT() - Execute the Python script that was created previously
+                - This will open the Windows Command Prompt and type the python command to run the script that was prevoiusly created by the CREATE_SCRIPT command
+                - When executing **ANY** script, this is the command that you will use
 
                 IMPORTANT: Keyboard shortcuts are often the most efficient way to complete tasks. Consider using them when appropriate.
 
@@ -606,7 +632,7 @@ if __name__ == '__main__':  # Main execution block
         # Define the default prompt if none provided
         IMG_PROMPT = "Open Windows Search"
 
-    IMG_PROMPT = "Create a new Python script"
+    IMG_PROMPT = "Create a new Python script. Then execute the program in the Command Prompt."
     
     print(f"Processing task: {IMG_PROMPT}")  # Print the task being processed
 
