@@ -96,7 +96,7 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
         return screenshot_img  # Return the taken screenshot image
 
-    def overlayGridOnImg(self, img):  # Method to overlay a grid on the image
+    def overlayGridOnImg(self, img, center_coord_text=False):  # Method to overlay a grid on the image
         margin_top = self.margin_top  # Get top margin
         margin_left = self.margin_left  # Get left margin
         h, w = img.shape[:2]  # Get height and width of the image
@@ -131,21 +131,31 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
             if i <= cols:  # If within column range
                 text = str(i)  # Convert column index to string
-                text_size = cv2.getTextSize(text, font, font_scale, font_thickness)[0]  # Get text size
-                text_x = x - text_size[0] // 2  # Center text above grid line
-                cv2.putText(canvas, text, (text_x, margin_top - 15),  # Add column index text
-                            font, font_scale, font_color, font_thickness, cv2.LINE_AA)  # Set text properties
+                text_size_wh = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+                
+                # Calculate text position
+                if center_coord_text: 
+                    text_x = x - (text_size_wh[0] // 2) - (cell_w//2)   # for text centerd in cell
+                else: 
+                    text_x = x - (text_size_wh[0] // 2)               # for text on cell line
+                text_y = margin_top - (text_size_wh[1]) # get y position
+                cv2.putText(canvas, text, (text_x, text_y), font, font_scale, font_color, font_thickness, cv2.LINE_AA) # put the text on the image
 
         for i in range(rows + 2):  # Loop through rows to draw horizontal grid lines
             y = margin_top + i * cell_h  # Calculate y position for grid line
             cv2.line(canvas, (margin_left, y), (margin_left + w + cell_w, y), color=grid_color, thickness=1)  # Draw horizontal line
 
             if i <= rows:  # If within row range
-                text = str(i)  # Convert row index to string
-                text_size = cv2.getTextSize(text, font, font_scale, font_thickness)[0]  # Get text size
-                text_y = y + text_size[1] // 2  # Center text to the left of grid line
-                cv2.putText(canvas, text, (margin_left - text_size[0] - 10, text_y),  # Add row index text
-                            font, font_scale, font_color, font_thickness, cv2.LINE_AA)  # Set text properties
+                text = str(i) # Convert row index to string
+                text_size_wh = cv2.getTextSize(text, font, font_scale, font_thickness)[0] # Get text size
+                
+                # Calculate text position
+                text_x = margin_left - text_size_wh[0] - 10
+                if center_coord_text: 
+                    text_y = y + (text_size_wh[1] // 2) - (cell_h//2)   # for text centerd in cell
+                else: 
+                    text_y = y + (text_size_wh[1] // 2)               # for text on cell line
+                cv2.putText(canvas, text, (text_x, text_y), font, font_scale, font_color, font_thickness, cv2.LINE_AA)
 
         return canvas  # Return the canvas with the grid overlay
 
@@ -227,139 +237,244 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             print(commands_str)  # Print raw commands string
             return False  # Indicate failure
 
-    def initialize_system_message(self):  # Method to initialize system message
-        system_message = {  # Create system message dictionary
-            "role": "system",  # Set role to system
-            "content": """  # Set content of the system message
-            You are an assistant that helps users control their computer by generating commands based on screenshots.
+    def createFewShotPrompts(self, verbose=False):
+        """
+        Create the prompts for the few-shot examples for various commonly used icons/images that need to be located on screen
+        """
 
-            You will be provided with:
-            1. An example screenshot showing grid coordinates
-            2. The original screenshot without any overlay
-            3. The same screenshot with a numbered grid overlay
+        few_shot_prompts = []
 
-            Use the grid overlay to determine precise coordinates, but refer to the original screenshot for visual clarity.
 
-            IMPORTANT: The whole number coordinates (0, 1, 2, etc.) are positioned directly on the grid lines, not in the center of cells.
-            When specifying coordinates, use the grid lines as reference points for whole numbers, and use decimal places for positions between lines.
+        ##### Build the few-shot example prompts
+        if verbose: print(); print("#"*50); print("Few Shot Examples:")
+        else: print("Getting few-shot examples...")
 
-            Available commands:
-            1. MOVE_MOUSE(row, col) - Move the mouse to the specified grid coordinates
-               - Coordinates should be specified with 2 decimal places precision (e.g., 5.25, 10.75)
-               - This allows for more precise positioning within grid cells
-               - Row is the Y coordinate (vertical position from top)
-               - Column is the X coordinate (horizontal position from left)
-            2. CLICK(type) - Click at the current mouse position. Type can be "left" or "right"
-            3. TYPE(text) - Type the specified text
-            4. PRESS_KEY(key) - Press a specific keyboard key or keyboard shortcut
-               - For single keys: "enter", "escape", "tab", "delete", "backspace", "space"
-               - For keyboard shortcuts, use "+" between keys: "ctrl+w", "alt+f4", "ctrl+shift+t"
-               - For a sequence of key presses, use separate PRESS_KEY commands for each
-               - Examples:
-                 * PRESS_KEY(ctrl+w)  # Close a browser tab
-                 * PRESS_KEY(alt+f4)  # Close an application
-                 * PRESS_KEY(ctrl+c)  # Copy
-                 * PRESS_KEY(ctrl+v)  # Paste
-            5. SCREENSHOT() - Take a new screenshot to see the updated screen state
+        # Go through the few-shot example directory 
+        few_shot_examples_dir = "few_shot_examples"
+        for dir in sorted(os.listdir(few_shot_examples_dir)):
+            dir_path = os.path.join(few_shot_examples_dir, dir) # eg "few_shot_examples\back_arrow"
+            # Only use the directories
+            if os.path.isdir(dir_path):
 
-            IMPORTANT: Keyboard shortcuts are often the most efficient way to complete tasks. Consider using them when appropriate.
+                # Get txt file for prompt
+                prompt_txt_path = os.path.join(dir_path, f"{dir}_prompt.txt") # eg "few_shot_examples\back_arrow\back_arrow_prompt.txt"
+                # Check that prompt file exists
+                if not os.path.isfile(prompt_txt_path): 
+                    raise Exception(f"Missing prompt for few-shot examples {dir_path}. Missing file {prompt_txt_path}")
+                
+                # Get prompt from file
+                with open(prompt_txt_path, 'r') as txt_file:
+                    prompt = txt_file.read()
+                    if verbose: print(prompt)
+                # Create header prompt for the example type
+                few_shot_examples_header = {
+                    "type": "text",
+                    "text": prompt
+                }
+                few_shot_prompts.append(few_shot_examples_header) # add to list of prompts
 
-            YOU MUST STRUCTURE YOUR RESPONSE WITH TWO CLEARLY LABELED SECTIONS:
+                # Get images
+                valid_img_extensions = ('.png', '.jpg')
+                for img_name in sorted([img_path for img_path in os.listdir(dir_path) if img_path.endswith(valid_img_extensions)]): # only loop through image files
+                    # Get the full path to the image
+                    img_path = os.path.join(dir_path, img_name) # eg. "few_shot_examples/back_arrow/back_arrow_1.png"
+                    if verbose: print(img_path)
+                    # Convert to b64 so it can be sent in a prompt
+                    b64_img = self.convImgToB64(cv2.imread(img_path))
+                    # Create the image example prompt 
+                    img_prompt = {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}
+                    }
+                    few_shot_prompts.append(img_prompt) # add to list of prompts
 
-            1. REASONING:
-               YOU MUST INCLUDE THIS SECTION. In this section, you should:
-               - Analyze what you see in the screenshot in detail
-               - Identify UI elements relevant to the task
-               - Consider different approaches to complete the task (including keyboard shortcuts)
-               - Explain why you chose specific coordinates or keyboard shortcuts
-               - Describe what each element looks like and where it's located
+        if verbose: print("#"*50); print()
 
-            2. COMMANDS:
-               A JSON-formatted list of commands in the exact order they should be executed. For example:
-               [
-                   "MOVE_MOUSE(5.25, 10.75)",
-                   "CLICK(left)",
-                   "TYPE(Hello world)",
-                   "PRESS_KEY(enter)",
-                   "SCREENSHOT()"
-               ]
+        return few_shot_prompts
 
-            Be precise with coordinates, using the numbered grid on the screenshot. Row numbers (Y-axis) start from 0 at the top, and column numbers (X-axis) start from 0 at the left.
+    def createCoordinateExamplePrompt(self, example_img_path):
+        examples = []
 
-            Always provide the most direct and efficient sequence of commands to complete the task.
-            """  # End of content
+        #### Create coordinate example prompt
+
+        # Check that example image exists
+        has_example = os.path.exists(example_img_path)
+        if not has_example:
+            print(f"Example image {example_img_path} does not exist. Skipping coordinate example")
+            return []
+        
+        b64_coordinate_example = self.convImgToB64(cv2.imread(example_img_path))  # Encode example image
+        grid_coordinate_example_prompt = {
+            "type": "text",
+            "text": "Here's an example screenshot showing grid coordinates. It has a red dot at position (23.25, 13.75) and a blue X at position (26.80, 1.65). Use this as a reference for understanding how coordinates map to positions on the grid."
         }
-        self.messages.append(system_message)  # Append system message to messages list
+        # Create coordinate example prompt to send the example image to the model
+        grid_coordinate_example_prompt_img = {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{b64_coordinate_example}"}
+        }
+        examples.append(grid_coordinate_example_prompt)
+        examples.append(grid_coordinate_example_prompt_img)
 
-    def sendRequest(self, prompt, continue_conversation=False):  # Method to send a request to the OpenAI model
-        if not continue_conversation:  # If not continuing a conversation
-            self.messages = []  # Reset messages list
-            self.initialize_system_message()  # Initialize system message
+        return examples
+
+    def createPromptMessages(self, resume_conversation=False):
+        """
+        Create the messages that are passed into the api request
+        """
+        
+        # If resuming a conversation, get the previous messages to keep in the context window
+        if resume_conversation:
+            messages = self.messages.copy()
+        # If not resuming, create a fresh messages list
+        else:
+            messages = []
+
+        # If not resuming a conversation, we need to add the system prompt
+        if not resume_conversation:
+            ########## Build system prompt - note: can only send images in the user prompt
+            system_prompt = { "role": "system", "content": [] }
+
+            # Create the main system prompt that specifies the model's behavior and role
+            main_behavior_system_prompt = {
+                "type": "text", 
+                "text": """
+                You are an assistant that helps users control their computer by generating commands based on screenshots.
+
+                You will be provided with:
+                1. An example screenshot showing grid coordinates
+                2. The original screenshot without any overlay
+                3. The same screenshot with a numbered grid overlay
+
+                Use the grid overlay to determine precise coordinates, but refer to the original screenshot for visual clarity.
+
+                IMPORTANT: The whole number coordinates (0, 1, 2, etc.) are positioned directly on the grid lines, not in the center of cells.
+                When specifying coordinates, use the grid lines as reference points for whole numbers, and use decimal places for positions between lines.
+
+                Available commands:
+                1. MOVE_MOUSE(row, col) - Move the mouse to the specified grid coordinates
+                - Coordinates should be specified with 2 decimal places precision (e.g., 5.25, 10.75)
+                - This allows for more precise positioning within grid cells
+                2. CLICK(type) - Click at the current mouse position. Type can be "left" or "right"
+                3. TYPE(text) - Type the specified text
+                4. PRESS_KEY(key) - Press a specific keyboard key or keyboard shortcut
+                - For single keys: "enter", "escape", "tab", "delete", "backspace", "space"
+                - For keyboard shortcuts, use "+" between keys: "ctrl+w", "alt+f4", "ctrl+shift+t"
+                - For a sequence of key presses, use separate PRESS_KEY commands for each
+                - Examples:
+                    * PRESS_KEY(ctrl+w)  # Close a browser tab
+                    * PRESS_KEY(alt+f4)  # Close an application
+                    * PRESS_KEY(ctrl+c)  # Copy
+                    * PRESS_KEY(ctrl+v)  # Paste
+                5. SCREENSHOT() - Take a new screenshot to see the updated screen state
+
+                IMPORTANT: Keyboard shortcuts are often the most efficient way to complete tasks. Consider using them when appropriate.
+
+                Your response should have two sections:
+
+                1. REASONING:
+                - Analyze what you see in the screenshot
+                - Identify UI elements relevant to the task
+                - Consider different approaches to complete the task (including keyboard shortcuts)
+                - Explain why you chose specific coordinates or keyboard shortcuts
+                - Describe what each element looks like and where it's located
+
+                2. COMMANDS:
+                A JSON-formatted list of commands in the exact order they should be executed. For example:
+                [
+                    "MOVE_MOUSE(5.25, 10.75)",
+                    "CLICK(left)",
+                    "TYPE(Hello world)",
+                    "PRESS_KEY(enter)",
+                    "SCREENSHOT()"
+                ]
+
+                Be precise with coordinates, using the numbered grid on the screenshot. Row numbers (Y-axis) start from 0 at the top, and column numbers (X-axis) start from 0 at the left.
+
+                Always provide the most direct and efficient sequence of commands to complete the task.
+                """
+            }
+            # Add the main system prompt to the system prompt container
+            system_prompt['content'].append(main_behavior_system_prompt)
+
+
+        ########## Build user prompt
+        user_prompt = { "role": "user", "content": [] }
+
+        # Only add few-shot examples on first prompt
+        if not resume_conversation:
+            # Build the few-shot example prompts
+            few_shot_prompts = self.createFewShotPrompts(verbose=True)
+
+            # Get coordinate example
+            coord_example_img_path = "imgs/example_screenshot.jpg"
+            coord_example_prompts = self.createCoordinateExamplePrompt(coord_example_img_path)
+
+
+        # Create the main user prompt to define what the model will actually be trying to acheve
+        #TODO: might be better to have seperate actions as different prompts? I had margionally better luck with single action prompts in a few tests. Needs further testing - connor
+        main_user_prompt = {
+            "type": "text",
+            "text": f"Please provide the commands needed to complete this task: {self.prompt}\n\nI'm providing two images: the original screenshot and the same screenshot with a grid overlay for coordinate reference. First, reason through the different ways to complete this task, identify the relevant UI elements, and explain your approach. Then provide the specific commands."
+        }
+        # Create the prmopt to send the original image to the model
+        original_img_prompt = {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{self.b64_original}"}
+        }
+        # Create the prmopt to send the image with a grid overlay to the model
+        grid_img_prompt = {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{self.b64_grid}"}
+        }
+
+        # Only add examples on first prompt
+        if not resume_conversation:
+            # Add few-shot examples for common icons
+            [ user_prompt['content'].append(few_shot_prompt) for few_shot_prompt in few_shot_prompts ]
+            # Add coordinate example(s)
+            [ user_prompt['content'].append(coord_example_prompt) for coord_example_prompt in coord_example_prompts ]
+
+            
+        # Add user action prompt and images
+        user_prompt["content"].append(main_user_prompt)
+        user_prompt["content"].append(original_img_prompt)
+        user_prompt["content"].append(grid_img_prompt)
+
+        # Add system and user prompts to messages
+        if not resume_conversation: # only add system prompt if resuming a conversation
+            messages.append(system_prompt)
+        messages.append(user_prompt)
+
+        return messages
+
+    def sendRequest(self, prompt, img_path=None, continue_conversation=False):  # Method to send a request to the OpenAI model
+        
+        self.prompt = prompt
 
         # Use auto_screenshot instead of waiting for key press
-        img = self.auto_screenshot()  # Automatically take a screenshot
+        if img_path is None:    img = self.auto_screenshot()  # Automatically take a screenshot
+        else:                   img = cv2.imread(img_path) # Read passed in image if there is one
 
         # Save the screenshot with fixed name instead of timestamp to improve determinism
         screenshot_path = f"output/latest_screenshot.png"  # Define path for the screenshot
         cv2.imwrite(screenshot_path, img)  # Save the screenshot to the defined path
         print(f"Screenshot saved to: {screenshot_path}")  # Notify user of saved screenshot
-
-        # Check if example image exists before trying to load it
-        example_img_path = "imgs/example_screenshot.jpg"
-        example_img = None  # Initialize example image variable
-        has_example = os.path.exists(example_img_path)  # Check if example image exists
-        if has_example:  # If example image exists
-            example_img = cv2.imread(example_img_path)  # Load example image for reference
         
-        grid_img = self.overlayGridOnImg(img)  # Overlay grid on the screenshot
+        grid_img = self.overlayGridOnImg(img, center_coord_text=True)  # Overlay grid on the screenshot
 
         grid_path = f"output/latest_grid_screenshot.jpg"  # Define path for the grid overlay image
         cv2.imwrite(grid_path, grid_img)  # Save the grid overlay image
         print(f"Grid overlay image saved to: {grid_path}")  # Notify user of saved grid image
 
-        b64_original = self.convImgToB64(img)  # Convert original image to base64
-        b64_grid = self.convImgToB64(grid_img)  # Convert grid overlay image to base64
-        
-        # Initialize user message content
-        user_message_content = []  # Initialize user message content list
-        
-        # Add example image only if it exists
-        if has_example and example_img is not None:  # If example image exists and is not None
-            b64_example = self.convImgToB64(example_img)  # Convert example image to base64
-            user_message_content.extend([
-                {
-                    "type": "text",  # Define type as text
-                    "text": "Here's an example screenshot showing grid coordinates. It has a red dot at position (23.25, 13.75) and a blue X at position (26.80, 1.65). Use this as a reference for understanding how coordinates map to positions on the grid."  # Provide context for the example
-                },
-                {
-                    "type": "image_url",  # Define type as image URL
-                    "image_url": {"url": f"data:image/jpeg;base64,{b64_example}"}  # Embed example image in base64
-                }
-            ])
-        
-        # Add task instructions and screenshots
-        user_message_content.extend([
-            {
-                "type": "text",  # Define type as text
-                "text": f"Please provide the commands needed to complete this task: {prompt}\n\nI'm providing two images: the original screenshot and the same screenshot with a grid overlay for coordinate reference. Include both reasoning and commands."  # Request commands from the model
-            },
-            {
-                "type": "image_url",  # Define type as image URL
-                "image_url": {"url": f"data:image/jpeg;base64,{b64_original}"}  # Embed original screenshot in base64
-            },
-            {
-                "type": "image_url",  # Define type as image URL
-                "image_url": {"url": f"data:image/jpeg;base64,{b64_grid}"}  # Embed grid overlay image in base64
-            }
-        ])
-        
-        user_message = {  # Create user message dictionary
-            "role": "user",  # Set role to user
-            "content": user_message_content  # Set content of the user message
-        }
+        self.b64_original = self.convImgToB64(img)  # Convert original image to base64
+        self.b64_grid = self.convImgToB64(grid_img)  # Convert grid overlay image to base64
 
-        self.messages.append(user_message)  # Append user message to messages list
+        # Get the messages to pass to the model
+        self.messages = self.createPromptMessages(resume_conversation=continue_conversation)
+        
 
+        # Send the request
         response = self.client.chat.completions.create(  # Send request to OpenAI API
             model=self.model,  # Specify model to use
             temperature=0.0,  # Set temperature for response variability
@@ -375,7 +490,9 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             messages=self.messages  # Include conversation messages
         )
 
+
         response_content = response.choices[0].message.content  # Extract content from response
+        print(); print("Model Output:\n"); print("-"*75)
         print(response_content)  # Print the response content
 
         self.messages.append({  # Append assistant response to messages list
