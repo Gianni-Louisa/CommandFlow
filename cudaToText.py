@@ -49,6 +49,7 @@ except ImportError:
 
 SILENCE_THRESHOLD = 500  # Define the energy threshold to determine when speech is occurring
 SAMPLE_RATE = 48000  # Define the audio sampling rate in Hz (48kHz is high quality audio)
+WAKE_WORD = "hey computer"  # Define the wake word to detect
 
 listening_event = threading.Event()  # Create a threading event to control when the app is actively listening
 
@@ -676,8 +677,19 @@ def save_and_process_audio(audio_data):
                 # Schedule task removal after a delay
                 feedback_display.after(5000, lambda: remove_task(task_id))  # Remove task after 5 seconds
             else:
-                # Process the recognized text as a command if it seems valid
-                process_voice_command(text)  # Call function to process the command
+                # Check if the command starts with the wake word
+                text_lower = text.lower().strip()
+                if text_lower.startswith(WAKE_WORD):
+                    # Remove the wake word from the command
+                    command_text = text_lower[len(WAKE_WORD):].strip()
+                    print(f"DEBUG: Wake word detected, processing command: '{command_text}'")
+                    update_feedback_display("Wake word detected! Processing command...", "success", auto_clear=True)
+                    
+                    # Process the command without the wake word
+                    process_voice_command(command_text)
+                else:
+                    print(f"DEBUG: No wake word detected in: '{text}'")
+                    update_feedback_display("No wake word detected. Say 'Hey Computer' followed by your command.", "error", auto_clear=True)
                 
                 # Schedule task removal after a delay - we don't need to show both the audio processing
                 # and the command processing tasks simultaneously
@@ -914,6 +926,7 @@ class AudioProcessor:
                             complete_audio = np.concatenate(self.audio_buffer)  # Combine all buffered audio chunks into one array
                             print("Processing recorded audio...")  # Log that we're processing the recorded audio
 
+                            # Process all audio and check for wake word in the transcription
                             executor.submit(save_and_process_audio, complete_audio)  # Submit the processing task to the thread pool
                             
                             self.audio_buffer = []  # Reset audio buffer to empty list
@@ -936,7 +949,8 @@ def toggle_record():
             listening_event.set()  # Enable listening by setting the event
             
             # Update feedback display with persistent "Listening for commands..." message
-            update_feedback_display("Listening for commands...", "processing", auto_clear=False)  # Show listening status
+            update_feedback_display("Listening for commands... Say 'Hey Computer' followed by your command", "processing", auto_clear=False)  # Show listening status
+            status_label.config(text="Listening for commands... Say 'Hey Computer' followed by your command")
             
             audio_processor = AudioProcessor()  # Create an AudioProcessor instance to handle audio input
 
