@@ -230,24 +230,32 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 def test(a):
     print(a)
 test(5)
-        """
+"""
 
     def cvt_program_to_cmds(self, program):
         cmds_str = """\
 [
 "PRESS_KEY(esc)",
-        """
+"""
 
         #HACK-y way of doing this but whatever
 
         # Loop through each character in the program and add the command to type it to the array
-        ch_inx = -1
-        while ch_inx < len(program)-1:
-            ch_inx += 1
+        ch_inx = 0#-1
+        while ch_inx < len(program):#-1:
 
             # Check for space
             if program[ch_inx] == " ":
-                cmds_str += '\n"PRESS_KEY(space)",'
+                # cmds_str += '\n"PRESS_KEY(space)",'
+
+                # Often need to do many spaces so loop through them creating a string so they can be typed together
+                cur_space_str = ""
+                while program[ch_inx] == " ":
+                    cur_space_str += program[ch_inx]
+                    ch_inx += 1
+                cmds_str += f'\n"TYPE({cur_space_str})",'
+                ch_inx -= 1 # decrement becuase counter will be one higher than it should be for the next char
+
             # Check for tab
             elif program[ch_inx] == "\t":
                 cmds_str += '\n"PRESS_KEY(esc)",' # press esc first in case user has autocomplete on
@@ -256,20 +264,27 @@ test(5)
             elif program[ch_inx] == "\n":
                 cmds_str += '\n"PRESS_KEY(esc)",' # press esc first in case user has autocomplete on
                 cmds_str += '\n"PRESS_KEY(enter)",'
+                cmds_str += '\n"PRESS_KEY(home)",' # to avoid auto-indent messing up the indentation
+            # Check for symbols
+            elif program[ch_inx] in list("+-*/=%&|<>:;()"):
+                cmds_str += f'\n"PRESS_KEY({program[ch_inx]})",'
             # Else
             else:
+                # Get the full word and then type it all together 
                 cur_str = ""
                 while program[ch_inx].isalnum():
                     cur_str += program[ch_inx]
                     ch_inx += 1
 
                 cmds_str += f'\n"TYPE({cur_str})",'
+                ch_inx -= 1 # decrement becuase counter will be one higher than it should be for the next char
+            
+            ch_inx += 1 # increment counter on each iteration
 
         cmds_str += '\n"PRESS_KEY(ctrl+s)"\n]' # save and and add closing bracket
 
         return cmds_str
-
-
+ 
 
     def type_python_program(self):
         
@@ -279,11 +294,11 @@ test(5)
         cmds = self.cvt_program_to_cmds(prog)
 
         # Convert to format that self.execute_commands is expecting
-        str_cmds = f"""
-            ```json
-            {cmds}
-            ```
-            """
+        str_cmds = f"""\
+```json
+{cmds}
+```
+"""
 
         # Execute the commands to create a script
         self.execute_commands(str_cmds)
