@@ -565,7 +565,7 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                 - This should be the **FIRST** command executed whenever you are asked to create a script
                 - This will open a Visual Studio Code window and create a new Python program inside of it
                 7. WRITE_SCRIPT() - Write a Python script based on description of the program given in the user prompt
-                - This will use the user prompt and the description of the program to write said program
+                - This will automatically write the script that the user has described so you just need to have use this command and the script-writing will be done
                 - This will be used after the CREATE_SCRIPT() command when making a new program from scratch
                 8. EXECUTE_SCRIPT() - Execute the Python script that was created previously
                 - This will open the Windows Command Prompt and type the python command to run the script that was prevoiusly created by the CREATE_SCRIPT command
@@ -592,9 +592,43 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                     "SCREENSHOT()"
                 ]
 
-                Be precise with coordinates, using the numbered grid on the screenshot. Row numbers (Y-axis) start from 0 at the top, and column numbers (X-axis) start from 0 at the left.
+                Be precise with coordinates, using the numbered grid on the screenshot. Row numbers (Y-axis) start from 0 at the top left and go down, and column numbers (X-axis) start from 0 at the top left and go right.
 
                 Always provide the most direct and efficient sequence of commands to complete the task.
+
+                
+                EXAMPLES:
+                
+                - Example 1: If the user asks you to create a script implementing the famous "fizz-buzz" programming problem, your list of commands should be similar to the following:
+                [
+                    "CREATE_SCRIPT()",
+                    "WRITE_SCRIPT()",
+                    "EXECUTE_SCRIPT()"
+                ]
+
+                - Example 2: If the user asks you to open the Spotify app, your list of commands should be similar to the following:
+                [
+                    "PRESS_KEY(win+s)",
+                    "TYPE(Visual Studio Code)",
+                    "PRESS_KEY(enter)"
+                ]
+
+                - Example 3: If the user asks you to show them the gambling lines today, your list of commands should be similar to the following:
+                [
+                    "PRESS_KEY(win+s)",
+                    "TYPE(Google Chrome)",
+                    "PRESS_KEY(enter)",
+                    "WAIT(2)",
+                    "TYPE(oddstrader.com)",
+                    "PRESS_KEY(enter)"
+                ]
+
+                - Example 4: If the user asks you to click on an element on their current webpage, using the grid screenshot you determine it is located in the cell at row X and column Y (where X and Y are placeholders for float values), and then your list of commands should be similar to the following:
+                [
+                    "MOVE_MOUSE(X,Y)",
+                    "CLICK(left)"
+                ]
+                
                 """
             }
             # Add the main system prompt to the system prompt container
@@ -734,7 +768,7 @@ if __name__ == '__main__':  # Main execution block
         # Define the default prompt if none provided
         IMG_PROMPT = "Open Windows Search"
 
-    IMG_PROMPT = "Create a Python script that implements the famous fizz-buzz coding problem."
+    # IMG_PROMPT = "Create a Python script that implements the famous fizz-buzz coding problem."
     
     print(f"Processing task: {IMG_PROMPT}")  # Print the task being processed
 
