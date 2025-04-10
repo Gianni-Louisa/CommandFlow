@@ -177,12 +177,8 @@ class ScreenPrompter:  # Define the ScreenPrompter class
         return pixel_x, pixel_y  # Return pixel coordinates
 
     def create_and_open_new_python_program(self, command):
-        # match = re.search(r"CREATE_SCRIPT\((.*)\)", command)  # Match command pattern
-        # if match:  # If command matches
-
         # Create filename
         filename_timestamp = f"{datetime.datetime.now().strftime('%m-%d-%G_%H-%M')}" # get datetime of when program was created
-        # filename = filename_timestamp + "__" + match.group(1).strip('"\'')  # create filename by adding the passed in filename to the timestamp string
         filename = filename_timestamp + "__" + "generated_script.py"  # create filename by adding the passed in filename to the timestamp string
         
         cmd_flow_dir = os.getcwd() # get absolute working dir
@@ -196,10 +192,7 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             else: # if regular char just add it to the new string
                 esc_filepath = esc_filepath + ch
 
-        self.generated_script_filepath = esc_filepath
-
-        # else:
-        #     raise ValueError(f"Invalid filename in:\n {command}")            
+        self.generated_script_filepath = esc_filepath     
         
         # Create the commands that need to be executed to create a new script file 
         cmds = f"""
@@ -250,10 +243,8 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
         # Get only python stuff
         if response_content.startswith("```"):
-            script_str = "\n".join(response_content.split("\n")[1:-1])
-
+            script_str = "\n".join(response_content.split("\n")[1:-1]) # trim out the starting ```python and the trailing ```
         return script_str
-
 
     def cvt_program_to_cmds(self, program):
         cmds_str = """\
@@ -308,8 +299,6 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
         return cmds_str
                               
- 
-
     def type_python_program(self, prog):
         
         # Convert the program to command format
@@ -325,8 +314,19 @@ class ScreenPrompter:  # Define the ScreenPrompter class
         self.execute_commands(str_cmds)
         print("Done typing python program\n")
 
+    def confirm_action(self):
+        """
+        return True if action was confirmed, False otherwise
+        """
+        print("--CONFIRM ACTION--")
+
+        return True
+
     def execute_command(self, command):  # Method to execute a command
-        if command.startswith("MOVE_MOUSE"):  # Check if command is to move mouse
+        if command.startswith("ERROR"): # Check for errors
+            print("#"*75, "\n"); print(f"ERROR: could not proceed with executing the requested task: {self.prompt}"); print("\n", "#"*75)
+        
+        elif command.startswith("MOVE_MOUSE"):  # Check if command is to move mouse
             match = re.search(r"MOVE_MOUSE\((\d+\.?\d*),\s*(\d+\.?\d*)\)", command)  # Match command pattern
             if match:  # If command matches
                 row, col = float(match.group(1)), float(match.group(2))  # Extract row and column
@@ -399,6 +399,15 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             # Execute the commands to create a script
             self.execute_commands(cmds)
             
+
+        elif command.startswith("CONFIRM_ACTION"):
+            confirmed = self.confirm_action() # ask user whether the next action can be run
+            self.execute_command('"WAIT(1)"') 
+
+            # If the userr said not to perform the next action 
+            if not confirmed:
+                print("Action was not confirmed, stopping execution...")
+                #TODO
 
         else: raise ValueError(f"Invalid command {command}")
 
@@ -533,11 +542,12 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             main_behavior_system_prompt = {
                 "type": "text", 
                 "text": """
-                You are an assistant that helps users control their computer by generating commands based on screenshots.
+                You are an assistant that helps users control their computer by generating commands based on the user's request and screenshots of their screen-state.
 
                 You will be provided with:
-                1. An example screenshot showing grid coordinates
-                2. The original screenshot without any overlay
+                1. Examples of commonly used icons to help with your detection of them
+                2. An example screenshot of a user's screen with an overlayed grid which has coordinates, an example object that is on the screen, the the coordinates where the object is (might not be provided)
+                3. The original screenshot WITHOUT any grid overlay
                 3. The same screenshot with a numbered grid overlay
 
                 Use the grid overlay to determine precise coordinates, but refer to the original screenshot for visual clarity.
@@ -546,6 +556,7 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                 When specifying coordinates, use the grid lines as reference points for whole numbers, and use decimal places for positions between lines.
 
                 Available commands:
+                0. ERROR() - Use this (and only this) when something goes wrong and the task can not be completed for security reasons or otherwise
                 1. MOVE_MOUSE(row, col) - Move the mouse to the specified grid coordinates
                 - Coordinates should be specified with 2 decimal places precision (e.g., 5.25, 10.75)
                 - This allows for more precise positioning within grid cells
@@ -570,6 +581,8 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                 8. EXECUTE_SCRIPT() - Execute the Python script that was created previously
                 - This will open the Windows Command Prompt and type the python command to run the script that was prevoiusly created by the CREATE_SCRIPT command
                 - When executing **ANY** script, this is the command that you will use
+                9. CONFIRM_ACTION() - Prompts the user to confirm the action that you are about to take. Used as a security check so that unintended actions are not taken. 
+                - Use this command before running a command that could potentially not be exactly what the user wants.
 
                 IMPORTANT: Keyboard shortcuts are often the most efficient way to complete tasks. Consider using them when appropriate.
 
@@ -596,6 +609,9 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
                 Always provide the most direct and efficient sequence of commands to complete the task.
 
+                If a task is running commands that could do things the user doesn't want, use the "CONFIRM_ACTION()" command before the commands that could cause issues are run. This will have the user confirm the actions you are about to take to ensure you do not accidentally do anthing you shouldn't. For instance, if the user wants you to execute a program, you would open the terminal, type in the command, run the "CONFIRM_ACTION()" command, and then press enter to execute the program if the user confirmed that it is okay. For this example, your list of commands would be something like ["PRESS_KEY(win+s)", "TYPE(Command Prompt)", "TYPE(<command>)", "CONFIRM_ACTION()", "PRESS_KEY(enter)"].
+                
+                If a task that a user has requested could potentially irreparably damage their system or otherwise cause some sort of harm, do not proceed. Instead, use the "ERROR()" command.
                 
                 EXAMPLES:
                 
@@ -603,6 +619,7 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                 [
                     "CREATE_SCRIPT()",
                     "WRITE_SCRIPT()",
+                    "CONFIRM_ACTION()",
                     "EXECUTE_SCRIPT()"
                 ]
 
@@ -628,7 +645,13 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                     "MOVE_MOUSE(X,Y)",
                     "CLICK(left)"
                 ]
+
+                - Example 5: If the user asks you to delete their system files, your list of commands should be the following:
+                [
+                    "ERROR()"
+                ]
                 
+                Do a good job or you go to jail.
                 """
             }
             # Add the main system prompt to the system prompt container
