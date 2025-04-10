@@ -224,40 +224,60 @@ class ScreenPrompter:  # Define the ScreenPrompter class
         self.execute_commands(cmds)
         print("Done creating a new script file\n")
 
-    def get_script_from_model(self):
+    def get_script_from_model(self, command):
 
-        return """
-def test(a):
-    print(a)
-test(5)
-"""
+        script_message = f"Given the following command delimited by triple backticks, extract the description of the program that the user is requesting, write the python program, and then return only the program as a string: ```{command}```"
+        script_prompt = [{ "role": "user", "content": script_message}]
+
+        print("Creating script...")
+        response = self.client.chat.completions.create(  # Send request to OpenAI API
+            model=self.model,  # Specify model to use
+            temperature=0.0,  # Set temperature for response variability
+            top_p=1.0,  # Set top_p for response diversity
+            seed=42,  # Set seed for reproducibility
+            max_completion_tokens=1500,  # Set maximum tokens for response
+            n=1,  # Request one response
+            stream=False,  # Disable streaming
+            frequency_penalty=0.0,  # Set frequency penalty
+            presence_penalty=0.0,  # Set presence penalty
+            logit_bias={},  # Set logit bias
+            response_format={"type": "text"},  # Set response format
+            messages=script_prompt  # Include conversation messages
+        )
+        response_content = response.choices[0].message.content  # Extract content from response
+        print(); print("Script:\n"); print("-"*75)
+        print(response_content)  # Print the response content
+
+        # Get only python stuff
+        if response_content.startswith("```"):
+            script_str = "\n".join(response_content.split("\n")[1:-1])
+
+        return script_str
+
 
     def cvt_program_to_cmds(self, program):
         cmds_str = """\
 [
-"PRESS_KEY(esc)",
-"""
+"PRESS_KEY(esc)","""
 
         #HACK-y way of doing this but whatever
 
         # Loop through each character in the program and add the command to type it to the array
-        ch_inx = 0#-1
-        while ch_inx < len(program):#-1:
+        ch_inx = 0
+        while ch_inx < len(program):
 
-            # Check for space
-            if program[ch_inx] == " ":
-                # cmds_str += '\n"PRESS_KEY(space)",'
-
-                # Often need to do many spaces so loop through them creating a string so they can be typed together
-                cur_space_str = ""
-                while program[ch_inx] == " ":
-                    cur_space_str += program[ch_inx]
-                    ch_inx += 1
-                cmds_str += f'\n"TYPE({cur_space_str})",'
-                ch_inx -= 1 # decrement becuase counter will be one higher than it should be for the next char
+            # # Check for space
+            # if program[ch_inx] == " ":
+            #     # Often need to do many spaces so loop through them creating a string so they can be typed together
+            #     cur_space_str = ""
+            #     while program[ch_inx] == " ":
+            #         cur_space_str += program[ch_inx]
+            #         ch_inx += 1
+            #     cmds_str += f'\n"TYPE({cur_space_str})",'
+            #     ch_inx -= 1 # decrement becuase counter will be one higher than it should be for the next char
 
             # Check for tab
-            elif program[ch_inx] == "\t":
+            if program[ch_inx] == "\t":
                 cmds_str += '\n"PRESS_KEY(esc)",' # press esc first in case user has autocomplete on
                 cmds_str += '\n"PRESS_KEY(tab)",'
             # Check for new line
@@ -265,17 +285,20 @@ test(5)
                 cmds_str += '\n"PRESS_KEY(esc)",' # press esc first in case user has autocomplete on
                 cmds_str += '\n"PRESS_KEY(enter)",'
                 cmds_str += '\n"PRESS_KEY(home)",' # to avoid auto-indent messing up the indentation
-            # Check for symbols
-            elif program[ch_inx] in list("+-*/=%&|<>:;()"):
-                cmds_str += f'\n"PRESS_KEY({program[ch_inx]})",'
-            # Else
+            # Handle quotes
+            elif program[ch_inx] in list("\""):
+                cmds_str += f"""\n"PRESS_KEY(\\\")",""" # god it was such a pain to get double quotes to work properly
+            elif program[ch_inx] in list("\'"):
+                cmds_str += f"""\n"PRESS_KEY(\')","""
+            # Else, cur char is a letter, number, or normal symbol 
             else:
                 # Get the full word and then type it all together 
                 cur_str = ""
-                while program[ch_inx].isalnum():
+                while program[ch_inx].isalnum() or program[ch_inx] in list(" +-*/=%&|<>:;(),._"):
                     cur_str += program[ch_inx]
                     ch_inx += 1
-
+                    if ch_inx == len(program): break
+                                    
                 cmds_str += f'\n"TYPE({cur_str})",'
                 ch_inx -= 1 # decrement becuase counter will be one higher than it should be for the next char
             
@@ -284,12 +307,11 @@ test(5)
         cmds_str += '\n"PRESS_KEY(ctrl+s)"\n]' # save and and add closing bracket
 
         return cmds_str
+                              
  
 
-    def type_python_program(self):
+    def type_python_program(self, prog):
         
-        # Get the python program as a string
-        prog = self.get_script_from_model()
         # Convert the program to command format
         cmds = self.cvt_program_to_cmds(prog)
 
@@ -299,7 +321,6 @@ test(5)
 {cmds}
 ```
 """
-
         # Execute the commands to create a script
         self.execute_commands(str_cmds)
         print("Done typing python program\n")
@@ -332,7 +353,7 @@ test(5)
         elif command.startswith("PRESS_KEY"):  # Check if command is to press a key
             match = re.search(r"PRESS_KEY\((.*)\)", command)  # Match command pattern
             if match:  # If command matches
-                key = match.group(1).strip('"\'')  # Extract key to press
+                key = match.group(1)#.strip('"\'')  # Extract key to press
                 if "+" in key:  # Check if it's a shortcut
                     keys = key.split("+")  # Split keys for shortcut
                     pyautogui.hotkey(*keys)  # Press the shortcut keys
@@ -354,7 +375,11 @@ test(5)
         elif command.startswith("CREATE_SCRIPT"):
 
             self.create_and_open_new_python_program(command)
-            self.type_python_program()
+
+        elif command.startswith("WRITE_SCRIPT"):
+            # Get the python program as a string
+            prog = self.get_script_from_model(self.prompt)
+            self.type_python_program(prog)
 
         elif command.startswith("EXECUTE_SCRIPT"):
             # Create the commands that need to be executed to create a new script file 
@@ -539,7 +564,10 @@ test(5)
                 6. CREATE_SCRIPT() - Create a new Python script inside of Visual Studio Code
                 - This should be the **FIRST** command executed whenever you are asked to create a script
                 - This will open a Visual Studio Code window and create a new Python program inside of it
-                7. EXECUTE_SCRIPT() - Execute the Python script that was created previously
+                7. WRITE_SCRIPT() - Write a Python script based on description of the program given in the user prompt
+                - This will use the user prompt and the description of the program to write said program
+                - This will be used after the CREATE_SCRIPT() command when making a new program from scratch
+                8. EXECUTE_SCRIPT() - Execute the Python script that was created previously
                 - This will open the Windows Command Prompt and type the python command to run the script that was prevoiusly created by the CREATE_SCRIPT command
                 - When executing **ANY** script, this is the command that you will use
 
@@ -706,19 +734,11 @@ if __name__ == '__main__':  # Main execution block
         # Define the default prompt if none provided
         IMG_PROMPT = "Open Windows Search"
 
-    IMG_PROMPT = "Create a new Python script. Then execute the program in the Command Prompt."
+    IMG_PROMPT = "Create a Python script that implements the famous fizz-buzz coding problem."
     
     print(f"Processing task: {IMG_PROMPT}")  # Print the task being processed
 
     screenPrompter = ScreenPrompter(API_KEY)  # Create an instance of ScreenPrompter
-    # result = screenPrompter.sendRequest(IMG_PROMPT)  # Send request to the model
-    # print(f"Command execution result: {result}")  # Print the result of command execution
+    result = screenPrompter.sendRequest(IMG_PROMPT)  # Send request to the model
+    print(f"Command execution result: {result}")  # Print the result of command execution
 
-    cmd = """
-        ```json
-        [
-            "CREATE_SCRIPT()"
-        ]
-        ```
-    """
-    screenPrompter.execute_commands(cmd)
