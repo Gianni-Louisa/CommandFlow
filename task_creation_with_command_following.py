@@ -72,6 +72,40 @@ class ScreenPrompter:  # Define the ScreenPrompter class
         self.margin_top = 80  # Set top margin for grid overlay
         self.margin_left = 80  # Set left margin for grid overlay
 
+    def make_confirm_action_window(self, nxt_cmd):
+        action_confirm_winname = 'Confirm Action'
+        cv2.namedWindow(action_confirm_winname)
+
+        FONT, FONT_THICKNESS = cv2.FONT_HERSHEY_COMPLEX, 2
+        TEXT_COLOR = (255,255,255) # white
+        CMD_COLOR = (200,120,64) # light blue
+        
+        # Get the texts to put on the frame
+        header_txt = "Confirm or cancel action:"
+        cmd_txt = f"{nxt_cmd}"
+        confirm_txt = "Press `space` to confirm action."
+        deny_txt    = "Press `escape` to cancel task execution."
+
+        # Get text sizes
+        header_w, header_h     = cv2.getTextSize(header_txt,   FONT, 3, FONT_THICKNESS)[0]
+        cmd_w, cmd_h           = cv2.getTextSize(cmd_txt,      FONT, 2, FONT_THICKNESS)[0]
+        confirm_w, confirm_h   = cv2.getTextSize(confirm_txt,  FONT, 2, FONT_THICKNESS)[0]
+        deny_w, deny_h         = cv2.getTextSize(deny_txt,     FONT, 2, FONT_THICKNESS)[0]
+        
+        # Make initial grey frame
+        frame_w, frame_h = max([header_w, cmd_w, confirm_w, deny_w])+20, np.sum([header_h, cmd_h, confirm_h, deny_h])+400
+        frame = np.full((frame_h,frame_w,3), (30,30,30), dtype=np.uint8)
+
+        # Draw the text to the screen
+        frame = cv2.putText(frame, header_txt, (frame_w//2 - header_w//2, header_h+20),                         FONT, 3, TEXT_COLOR, FONT_THICKNESS)
+        frame = cv2.putText(frame, cmd_txt, (frame_w//2 - cmd_w//2, frame_h//2 + cmd_h//2),                     FONT, 2, CMD_COLOR,  FONT_THICKNESS)
+        frame = cv2.putText(frame, confirm_txt, (frame_w//2 - confirm_w//2, frame_h-confirm_h-deny_h-30),       FONT, 2, TEXT_COLOR, FONT_THICKNESS)
+        frame = cv2.putText(frame, deny_txt, (frame_w//2 - deny_w//2, frame_h-deny_h-10),                       FONT, 2, TEXT_COLOR, FONT_THICKNESS)
+
+        return frame, action_confirm_winname
+
+
+
     def take_screenshot(self):  # Method to take a screenshot
         screenshot = pyautogui.screenshot()  # Capture the screenshot
         img_byte_arr = io.BytesIO()  # Create a byte stream for the image
@@ -253,20 +287,11 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
         #HACK-y way of doing this but whatever
 
+        VALID_SYMBOLS = " +-*/=%&|<>:;(),._#"
+
         # Loop through each character in the program and add the command to type it to the array
         ch_inx = 0
         while ch_inx < len(program):
-
-            # # Check for space
-            # if program[ch_inx] == " ":
-            #     # Often need to do many spaces so loop through them creating a string so they can be typed together
-            #     cur_space_str = ""
-            #     while program[ch_inx] == " ":
-            #         cur_space_str += program[ch_inx]
-            #         ch_inx += 1
-            #     cmds_str += f'\n"TYPE({cur_space_str})",'
-            #     ch_inx -= 1 # decrement becuase counter will be one higher than it should be for the next char
-
             # Check for tab
             if program[ch_inx] == "\t":
                 cmds_str += '\n"PRESS_KEY(esc)",' # press esc first in case user has autocomplete on
@@ -282,16 +307,19 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             elif program[ch_inx] in list("\'"):
                 cmds_str += f"""\n"PRESS_KEY(\')","""
             # Else, cur char is a letter, number, or normal symbol 
-            else:
+            elif program[ch_inx].isalnum() or program[ch_inx] in list(VALID_SYMBOLS):
                 # Get the full word and then type it all together 
                 cur_str = ""
-                while program[ch_inx].isalnum() or program[ch_inx] in list(" +-*/=%&|<>:;(),._"):
+                while program[ch_inx].isalnum() or program[ch_inx] in list(VALID_SYMBOLS):
                     cur_str += program[ch_inx]
                     ch_inx += 1
                     if ch_inx == len(program): break
                                     
                 cmds_str += f'\n"TYPE({cur_str})",'
                 ch_inx -= 1 # decrement becuase counter will be one higher than it should be for the next char
+            
+            # Otherwise not a valid char
+            else: print(f"Invalid char: {program[ch_inx]}. Ignoring...")
             
             ch_inx += 1 # increment counter on each iteration
 
@@ -314,15 +342,47 @@ class ScreenPrompter:  # Define the ScreenPrompter class
         self.execute_commands(str_cmds)
         print("Done typing python program\n")
 
-    def confirm_action(self):
+    def confirm_action(self, nxt_cmd):
         """
         return True if action was confirmed, False otherwise
         """
-        print("--CONFIRM ACTION--")
 
-        return True
+        # If next command is None then the CONFIRM_ACTION command was the last command which shouldn't happen but GPT be buggin frfr
+        if nxt_cmd is None:
+            return True
 
-    def execute_command(self, command):  # Method to execute a command
+        print(f"Confirming: {nxt_cmd}")
+
+        # Create pop-up page for user interactivity
+        confirm_popup, action_confirm_winname = self.make_confirm_action_window(nxt_cmd)
+
+        # Loop to handle user actions
+        running = True
+        while running:
+            cv2.imshow(action_confirm_winname, confirm_popup) # display window
+            key = cv2.waitKey(1) # listen for keystrokes
+            # If user presses space, they confirm the action
+            if key == ord(' '):
+                print("Action confirmed")
+                confirmed = True
+                running = False
+            # If user presses esc, they cancel the task
+            elif key == 27: # 27=ascii for escape key
+                print("Action canceled")
+                confirmed = False
+                running = False
+        
+        # Destory the window
+        cv2.destroyWindow(action_confirm_winname)
+
+        return confirmed
+
+    def execute_command(self, command, nxt_cmd=None):  # Method to execute a command
+
+        print(f"command: {command}")
+
+        nxt_cmd_confirmed = True # 
+
         if command.startswith("ERROR"): # Check for errors
             print("#"*75, "\n"); print(f"ERROR: could not proceed with executing the requested task: {self.prompt}"); print("\n", "#"*75)
         
@@ -370,7 +430,7 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
         elif command.startswith("SCREENSHOT"):  # Check if command is to take a screenshot
             print("Taking a new screenshot...")  # Notify user that a new screenshot will be taken
-            return True  # Indicate that a new screenshot is needed
+            return True, nxt_cmd_confirmed  # Indicate that a new screenshot is needed
         
         elif command.startswith("CREATE_SCRIPT"):
 
@@ -401,17 +461,19 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             
 
         elif command.startswith("CONFIRM_ACTION"):
-            confirmed = self.confirm_action() # ask user whether the next action can be run
-            self.execute_command('"WAIT(1)"') 
+            
+            nxt_cmd_confirmed = self.confirm_action(nxt_cmd) # ask user whether the next action can be run
+            self.execute_command('WAIT(1)') 
 
             # If the userr said not to perform the next action 
-            if not confirmed:
+            if not nxt_cmd_confirmed:
                 print("Action was not confirmed, stopping execution...")
-                #TODO
+            
+            return False, nxt_cmd_confirmed
 
         else: raise ValueError(f"Invalid command {command}")
 
-        return False  # Indicate no new screenshot is needed
+        return False, nxt_cmd_confirmed  # Indicate no new screenshot is needed and return whether or not the next action was confirmed
 
     def execute_commands(self, commands_str):  # Method to execute a series of commands
         try:  # Try to execute commands
@@ -428,11 +490,16 @@ class ScreenPrompter:  # Define the ScreenPrompter class
             cleaned_str = cleaned_str.strip()  # Clean the string
 
             commands = json.loads(cleaned_str)  # Load commands from JSON
-            for command in commands:  # Loop through each command
-                print(f"Executing: {command}")  # Print command being executed
-                take_new_screenshot = self.execute_command(command)  # Execute the command
+            for command_inx in range(len(commands)):  # Loop through each command
+                print(f"Executing: {commands[command_inx]}")  # Print command being executed
+                nxt_cmd = None if command_inx >= len(commands)-1 else commands[command_inx+1]
+                take_new_screenshot, nxt_cmd_confirmed = self.execute_command(commands[command_inx], nxt_cmd)  # Execute the command
                 if take_new_screenshot:  # If a new screenshot is needed
                     return True  # Indicate that a new screenshot is needed
+                # Stop running if user did not confirm next command to be run
+                if not nxt_cmd_confirmed:
+                    print(f"Next command was not confirmed by the user. Stopping task execution...")
+                    break
                 time.sleep(0.5)  # Wait before executing the next command
             return False  # Indicate no new screenshot is needed
         except json.JSONDecodeError:  # Handle JSON decoding errors
@@ -672,7 +739,6 @@ class ScreenPrompter:  # Define the ScreenPrompter class
 
 
         # Create the main user prompt to define what the model will actually be trying to acheve
-        #TODO: might be better to have seperate actions as different prompts? I had margionally better luck with single action prompts in a few tests. Needs further testing - connor
         main_user_prompt = {
             "type": "text",
             "text": f"Please provide the commands needed to complete this task: {self.prompt}\n\nI'm providing two images: the original screenshot and the same screenshot with a grid overlay for coordinate reference. First, reason through the different ways to complete this task, identify the relevant UI elements, and explain your approach. Then provide the specific commands."
@@ -790,12 +856,29 @@ if __name__ == '__main__':  # Main execution block
     else:
         # Define the default prompt if none provided
         IMG_PROMPT = "Open Windows Search"
-
-    # IMG_PROMPT = "Create a Python script that implements the famous fizz-buzz coding problem."
     
     print(f"Processing task: {IMG_PROMPT}")  # Print the task being processed
 
     screenPrompter = ScreenPrompter(API_KEY)  # Create an instance of ScreenPrompter
     result = screenPrompter.sendRequest(IMG_PROMPT)  # Send request to the model
     print(f"Command execution result: {result}")  # Print the result of command execution
+
+
+    '''Manual testing'''
+#     cmds = """```json
+# [
+#     "TYPE(testing)",
+#     "CONFIRM_ACTION()",
+#     "TYPE(action confirmed)"
+# ]
+# ```
+# """
+#     cmds = """```json
+# [
+#     "CONFIRM_ACTION()",
+#     "TYPE(action confirmed)"
+# ]
+# ```
+# """
+#     screenPrompter.execute_commands(cmds)
 
