@@ -39,6 +39,7 @@ from window_detection import get_window_snapshot, get_context_for_speech_command
 import time  # Import time module for task tracking
 import subprocess  # Import subprocess module for running external scripts
 import webbrowser  # Import webbrowser module for opening websites
+import cv2  # Import cv2 for image processing
 
 try:
     import pyautogui  # Try to import pyautogui module for mouse and keyboard control
@@ -248,159 +249,202 @@ def preprocess_audio(audio_data, sample_rate=16000):
 
 def process_voice_command(command_text):
     """
-    Process a voice command from the text input
+    Process a voice command and execute the corresponding action
     
     Args:
-        command_text (str): The text of the command to process
+        command_text (str): The text of the voice command to process
     """
-    # Normalize the command text (lowercase, remove extra spaces, etc.)
-    command_text = command_text.lower().strip()  # Convert to lowercase and remove leading/trailing whitespace
+    # Track this command
+    task_id = track_task("Processing voice command", "processing")
     
-    print(f"DEBUG: Processing voice command: '{command_text}'")  # Print debug information about the command being processed
+    # Update the feedback display with the processing message
+    update_feedback_display(f"Processing command: {command_text}", "processing")
     
-    try:  # Begin try-except block to handle any errors
-        # If there's no actual command, just return
-        if not command_text:  # Check if the command text is empty
-            return  # Exit the function if there's no command to process
-            
-        # Cancel any pending clear operations first to avoid race conditions
-        for after_id in feedback_display.tk.call('after', 'info'):  # Get all scheduled "after" callbacks
-            try:  # Begin nested try-except block
-                feedback_display.after_cancel(int(after_id))  # Try to cancel the callback by its ID
-                print(f"DEBUG: Cancelled after task with ID {after_id}")  # Print debug information about cancelled callback
-            except ValueError:  # Handle the case where the ID is not a numeric value
-                pass  # Not a numeric ID, so skip it
-                
-        # Show a processing message - make sure it won't auto-clear
-        msg = "Processing command..."  # Define the processing message
-        print(f"DEBUG: Setting processing message: '{msg}'")  # Print debug information about the message
-        update_feedback_display(msg, "processing", auto_clear=False)  # Update the feedback display with the processing message
+    # Create a confirmation dialog using Tkinter
+    confirm_window = tk.Toplevel(root)
+    confirm_window.title("Confirm Command")
+    confirm_window.geometry("400x200")
+    confirm_window.configure(bg="#1a2332")
+    
+    # Make the window modal
+    confirm_window.transient(root)
+    confirm_window.grab_set()
+    
+    # Center the window on the screen
+    confirm_window.update_idletasks()
+    width = confirm_window.winfo_width()
+    height = confirm_window.winfo_height()
+    x = (confirm_window.winfo_screenwidth() // 2) - (width // 2)
+    y = (confirm_window.winfo_screenheight() // 2) - (height // 2)
+    confirm_window.geometry(f'{width}x{height}+{x}+{y}')
+    
+    # Add confirmation message
+    tk.Label(confirm_window, 
+            text="Confirm Command:",
+            font=("Segoe UI", 12, "bold"),
+            bg="#1a2332",
+            fg="white").pack(pady=(20,10))
+    
+    # Add command text
+    tk.Label(confirm_window,
+            text=command_text,
+            font=("Segoe UI", 10),
+            bg="#1a2332",
+            fg="white",
+            wraplength=350).pack(pady=(0,20))
+    
+    # Add buttons frame
+    button_frame = tk.Frame(confirm_window, bg="#1a2332")
+    button_frame.pack(pady=(0,20))
+    
+    # Add confirm button
+    tk.Button(button_frame,
+             text="Confirm (Space)",
+             command=lambda: [confirm_window.destroy(), setattr(confirm_window, 'confirmed', True)],
+             font=("Segoe UI", 10),
+             bg="#2ecc71",
+             fg="white",
+             padx=20,
+             pady=5).pack(side=tk.LEFT, padx=10)
+    
+    # Add cancel button
+    tk.Button(button_frame,
+             text="Cancel (Esc)",
+             command=lambda: [confirm_window.destroy(), setattr(confirm_window, 'confirmed', False)],
+             font=("Segoe UI", 10),
+             bg="#e74c3c",
+             fg="white",
+             padx=20,
+             pady=5).pack(side=tk.LEFT, padx=10)
+    
+    # Bind keyboard shortcuts
+    confirm_window.bind('<space>', lambda e: [confirm_window.destroy(), setattr(confirm_window, 'confirmed', True)])
+    confirm_window.bind('<Escape>', lambda e: [confirm_window.destroy(), setattr(confirm_window, 'confirmed', False)])
+    
+    # Set focus to the window
+    confirm_window.focus_set()
+    
+    # Wait for the window to be closed
+    root.wait_window(confirm_window)
+    
+    # Check if the command was confirmed
+    if not getattr(confirm_window, 'confirmed', False):
+        update_feedback_display("Command cancelled", "error")
+        remove_task(task_id)
+        return
+    
+    # Check for different command types and execute the corresponding action
+    
+    # Task automation command - starts with 'task:'
+    if command_text.startswith('task:'):
+        task_description = command_text[5:].strip()  # Extract the task description by removing 'task:' prefix
+        if task_description:  # Check if there's a task description
+            print(f"DEBUG: Detected task automation command: '{task_description}'")  # Print debug information about the task
+            # Handle task automation in a separate thread to avoid blocking the GUI
+            handle_task_automation(task_description)  # Call the function to handle task automation
+        else:  # If there's no task description
+            # Cancel any pending clear operations
+            for after_id in feedback_display.tk.call('after', 'info'):  # Get all scheduled "after" callbacks
+                try:  # Begin nested try-except block
+                    feedback_display.after_cancel(int(after_id))  # Try to cancel the callback by its ID
+                except ValueError:  # Handle the case where the ID is not a numeric value
+                    pass  # Not a numeric ID, so skip it
         
-        # Check for different command types and execute the corresponding action
+            error_msg = "No task description provided. Please specify a task after 'task:'"  # Define error message
+            print(f"DEBUG: {error_msg}")  # Print debug information about the error
+            update_feedback_display(error_msg, "error")  # Update the feedback display with the error message
         
-        # Task automation command - starts with 'task:'
-        if command_text.startswith('task:'):  # Check if the command starts with 'task:'
-            task_description = command_text[5:].strip()  # Extract the task description by removing 'task:' prefix
-            if task_description:  # Check if there's a task description
-                print(f"DEBUG: Detected task automation command: '{task_description}'")  # Print debug information about the task
-                # Handle task automation in a separate thread to avoid blocking the GUI
-                handle_task_automation(task_description)  # Call the function to handle task automation
-            else:  # If there's no task description
-                # Cancel any pending clear operations
-                for after_id in feedback_display.tk.call('after', 'info'):  # Get all scheduled "after" callbacks
-                    try:  # Begin nested try-except block
-                        feedback_display.after_cancel(int(after_id))  # Try to cancel the callback by its ID
-                    except ValueError:  # Handle the case where the ID is not a numeric value
-                        pass  # Not a numeric ID, so skip it
-                
-                error_msg = "No task description provided. Please specify a task after 'task:'"  # Define error message
-                print(f"DEBUG: {error_msg}")  # Print debug information about the error
-                update_feedback_display(error_msg, "error")  # Update the feedback display with the error message
-                
-        # Open website command - starts with 'open:'
-        elif command_text.startswith('open:'):  # Check if the command starts with 'open:'
-            website = command_text[5:].strip()  # Extract the website by removing 'open:' prefix
-            if website:  # Check if there's a website
-                # Track this command
-                task_id = track_task(f"Open website: {website}", "processing")  # Add this task to the tracker
-                
-                print(f"DEBUG: Opening website: {website}")  # Print debug information about the website
-                if not website.startswith(('http://', 'https://')):  # Check if the website URL starts with http:// or https://
-                    website = 'https://' + website  # Add https:// prefix if it's missing
-                # Open the website in the default browser
-                webbrowser.open(website)  # Open the website in the default web browser
-                
-                # Cancel any pending clear operations
-                for after_id in feedback_display.tk.call('after', 'info'):  # Get all scheduled "after" callbacks
-                    try:  # Begin nested try-except block
-                        feedback_display.after_cancel(int(after_id))  # Try to cancel the callback by its ID
-                    except ValueError:  # Handle the case where the ID is not a numeric value
-                        pass  # Not a numeric ID, so skip it
-                
-                success_msg = f"Opening {website}"  # Define success message
-                print(f"DEBUG: {success_msg}")  # Print debug information about the success
-                update_feedback_display(success_msg, "success")  # Update the feedback display with the success message
-                
-                # Update task status
-                track_task(f"Open website: {website}", "success", "Opened")  # Update the task status to success
-                
-                # Schedule task removal after a delay
-                feedback_display.after(5000, lambda: remove_task(task_id))  # Schedule task removal after 5 seconds
-                
-            else:  # If there's no website
-                # Cancel any pending clear operations
-                for after_id in feedback_display.tk.call('after', 'info'):  # Get all scheduled "after" callbacks
-                    try:  # Begin nested try-except block
-                        feedback_display.after_cancel(int(after_id))  # Try to cancel the callback by its ID
-                    except ValueError:  # Handle the case where the ID is not a numeric value
-                        pass  # Not a numeric ID, so skip it
-                
-                error_msg = "No website provided. Please specify a website after 'open:'"  # Define error message
-                print(f"DEBUG: {error_msg}")  # Print debug information about the error
-                update_feedback_display(error_msg, "error")  # Update the feedback display with the error message
-                
-        # Move mouse command
-        elif "move mouse" in command_text or "move the mouse" in command_text:  # Check if the command contains 'move mouse' or 'move the mouse'
+    # Open website command - starts with 'open:'
+    elif command_text.startswith('open:'):  # Check if the command starts with 'open:'
+        website = command_text[5:].strip()  # Extract the website by removing 'open:' prefix
+        if website:  # Check if there's a website
             # Track this command
-            task_id = track_task("Move mouse", "processing")  # Add this task to the tracker
+            task_id = track_task(f"Open website: {website}", "processing")  # Add this task to the tracker
             
-            if "top right" in command_text:  # Check if the command specifies 'top right'
-                status_label.after(0, lambda: status_label.config(text="Moving mouse to top right"))  # Update status label
-                screen_width, _ = pyautogui.size()  # Get screen dimensions
-                pyautogui.moveTo(screen_width - 1, 0, duration=0.5)  # Move mouse to top right corner
-                
-                # Update task status
-                track_task("Move mouse", "success", "Top Right")  # Update the task status to success
-                
-                update_feedback_display("Mouse moved to top right", "success")  # Update feedback display with success message
-            else:  # If no specific position is specified
-                status_label.after(0, lambda: status_label.config(text="Moving mouse to default position"))  # Update status label
-                icon_x, icon_y = 200, 200  # Define default position coordinates
-                pyautogui.moveTo(icon_x, icon_y, duration=0.5)  # Move mouse to default position
-                
-                # Update task status
-                track_task("Move mouse", "success", "Default Pos")  # Update the task status to success
-                
-                update_feedback_display("Mouse moved to default position", "success")  # Update feedback display with success message
-                
-            # Schedule task removal after a delay
-            feedback_display.after(5000, lambda: remove_task(task_id))  # Schedule task removal after 5 seconds
+            print(f"DEBUG: Opening website: {website}")  # Print debug information about the website
+            if not website.startswith(('http://', 'https://')):  # Check if the website URL starts with http:// or https://
+                website = 'https://' + website  # Add https:// prefix if it's missing
+            # Open the website in the default browser
+            webbrowser.open(website)  # Open the website in the default web browser
             
-        # Close window command
-        elif "exit window" in command_text or "close window" in command_text:  # Check if the command contains 'exit window' or 'close window'
-            # Track this command
-            task_id = track_task("Close window", "processing")  # Add this task to the tracker
+            # Cancel any pending clear operations
+            for after_id in feedback_display.tk.call('after', 'info'):  # Get all scheduled "after" callbacks
+                try:  # Begin nested try-except block
+                    feedback_display.after_cancel(int(after_id))  # Try to cancel the callback by its ID
+                except ValueError:  # Handle the case where the ID is not a numeric value
+                    pass  # Not a numeric ID, so skip it
             
-            status_label.after(0, lambda: status_label.config(text="Exiting current window"))  # Update status label
-            pyautogui.hotkey("alt", "f4")  # Simulate Alt+F4 key combination to close the active window
+            success_msg = f"Opening {website}"  # Define success message
+            print(f"DEBUG: {success_msg}")  # Print debug information about the success
+            update_feedback_display(success_msg, "success")  # Update the feedback display with the success message
             
             # Update task status
-            track_task("Close window", "success", "Closed")  # Update the task status to success
-            
-            update_feedback_display("Window closed", "success")  # Update feedback display with success message
+            track_task(f"Open website: {website}", "success", "Opened")  # Update the task status to success
             
             # Schedule task removal after a delay
             feedback_display.after(5000, lambda: remove_task(task_id))  # Schedule task removal after 5 seconds
             
-        # Command not recognized
-        else:  # If none of the above command types match
-            # If none of the direct commands matched, try task automation
-            print(f"DEBUG: No direct command match, attempting task automation for: '{command_text}'")  # Print debug information
-            handle_task_automation(command_text)  # Handle the command as a task automation request
+        else:  # If there's no website
+            # Cancel any pending clear operations
+            for after_id in feedback_display.tk.call('after', 'info'):  # Get all scheduled "after" callbacks
+                try:  # Begin nested try-except block
+                    feedback_display.after_cancel(int(after_id))  # Try to cancel the callback by its ID
+                except ValueError:  # Handle the case where the ID is not a numeric value
+                    pass  # Not a numeric ID, so skip it
             
-    except Exception as e:  # Handle any exceptions that occur during command processing
-        print(f"Error processing command: {e}")  # Print error information
-        # Cancel any pending clear operations
-        for after_id in feedback_display.tk.call('after', 'info'):  # Get all scheduled "after" callbacks
-            try:  # Begin nested try-except block
-                feedback_display.after_cancel(int(after_id))  # Try to cancel the callback by its ID
-            except ValueError:  # Handle the case where the ID is not a numeric value
-                pass  # Not a numeric ID, so skip it
+            error_msg = "No website provided. Please specify a website after 'open:'"  # Define error message
+            print(f"DEBUG: {error_msg}")  # Print debug information about the error
+            update_feedback_display(error_msg, "error")  # Update the feedback display with the error message
+            
+    # Move mouse command
+    elif "move mouse" in command_text or "move the mouse" in command_text:  # Check if the command contains 'move mouse' or 'move the mouse'
+        # Track this command
+        task_id = track_task("Move mouse", "processing")  # Add this task to the tracker
         
-        error_msg = f"Error processing command: {str(e)}"  # Define error message with exception details
-        print(f"DEBUG: {error_msg}")  # Print debug information about the error
-        update_feedback_display(error_msg, "error")  # Update the feedback display with the error message
-
+        if "top right" in command_text:  # Check if the command specifies 'top right'
+            status_label.after(0, lambda: status_label.config(text="Moving mouse to top right"))  # Update status label
+            screen_width, _ = pyautogui.size()  # Get screen dimensions
+            pyautogui.moveTo(screen_width - 1, 0, duration=0.5)  # Move mouse to top right corner
+            
+            # Update task status
+            track_task("Move mouse", "success", "Top Right")  # Update the task status to success
+            
+            update_feedback_display("Mouse moved to top right", "success")  # Update feedback display with success message
+        else:  # If no specific position is specified
+            status_label.after(0, lambda: status_label.config(text="Moving mouse to default position"))  # Update status label
+            icon_x, icon_y = 200, 200  # Define default position coordinates
+            pyautogui.moveTo(icon_x, icon_y, duration=0.5)  # Move mouse to default position
+            
+            # Update task status
+            track_task("Move mouse", "success", "Default Pos")  # Update the task status to success
+            
+            update_feedback_display("Mouse moved to default position", "success")  # Update feedback display with success message
+            
+        # Schedule task removal after a delay
+        feedback_display.after(5000, lambda: remove_task(task_id))  # Schedule task removal after 5 seconds
+        
+    # Close window command
+    elif "exit window" in command_text or "close window" in command_text:  # Check if the command contains 'exit window' or 'close window'
+        # Track this command
+        task_id = track_task("Close window", "processing")  # Add this task to the tracker
+        
+        status_label.after(0, lambda: status_label.config(text="Exiting current window"))  # Update status label
+        pyautogui.hotkey("alt", "f4")  # Simulate Alt+F4 key combination to close the active window
+        
+        # Update task status
+        track_task("Close window", "success", "Closed")  # Update the task status to success
+        
+        update_feedback_display("Window closed", "success")  # Update feedback display with success message
+        
+        # Schedule task removal after a delay
+        feedback_display.after(5000, lambda: remove_task(task_id))  # Schedule task removal after 5 seconds
+        
+    # Command not recognized
+    else:  # If none of the above command types match
+        # If none of the direct commands matched, try task automation
+        print(f"DEBUG: No direct command match, attempting task automation for: '{command_text}'")  # Print debug information
+        handle_task_automation(command_text)  # Handle the command as a task automation request
+        
 
 def launch_task_automation(task_description):
     """

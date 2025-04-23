@@ -627,7 +627,9 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                 1. MOVE_MOUSE(row, col) - Move the mouse to the specified grid coordinates
                 - Coordinates should be specified with 2 decimal places precision (e.g., 5.25, 10.75)
                 - This allows for more precise positioning within grid cells
+                - IMPORTANT: Only use mouse movements if keyboard commands fail or are not available
                 2. CLICK(type) - Click at the current mouse position. Type can be "left" or "right"
+                - IMPORTANT: Only use clicks if keyboard commands fail or are not available
                 3. TYPE(text) - Type the specified text
                 4. PRESS_KEY(key) - Press a specific keyboard key or keyboard shortcut
                 - For single keys: "enter", "escape", "tab", "delete", "backspace", "space"
@@ -651,7 +653,7 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                 9. CONFIRM_ACTION() - Prompts the user to confirm the action that you are about to take. Used as a security check so that unintended actions are not taken. 
                 - Use this command before running a command that could potentially not be exactly what the user wants.
 
-                IMPORTANT: Keyboard shortcuts are often the most efficient way to complete tasks. Consider using them when appropriate.
+                IMPORTANT: Keyboard shortcuts and commands are ALWAYS the preferred method for completing tasks. Only use mouse movements and clicks if keyboard commands fail or are not available. This ensures more reliable and efficient task completion.
 
                 Your response should have two sections:
 
@@ -663,14 +665,177 @@ class ScreenPrompter:  # Define the ScreenPrompter class
                 - Describe what each element looks like and where it's located
 
                 2. COMMANDS:
-                A JSON-formatted list of commands in the exact order they should be executed. For example:
-                [
-                    "MOVE_MOUSE(5.25, 10.75)",
-                    "CLICK(left)",
-                    "TYPE(Hello world)",
-                    "PRESS_KEY(enter)",
-                    "SCREENSHOT()"
-                ]
+                A JSON-formatted list of commands in the exact order they should be executed. For example here are inputs and steps:
+
+{
+  "input": "Open File Explorer",
+  "steps": [
+    "Press Windows key",
+    "Press E"
+  ]
+}
+
+{
+  "input": "Open Task Manager",
+  "steps": [
+    "Press Ctrl + Shift + Esc"
+  ]
+}
+
+{
+  "input": "Launch Google Chrome",
+  "steps": [
+    "Press Windows key",
+    "Type 'chrome'",
+    "Press Enter"
+  ]
+}
+
+{
+  "input": "Open an Excel document named test",
+  "steps": [
+    "Press Windows key",
+    "Type 'test.xlsx'",
+    "Press Enter"
+  ]
+}
+
+{
+  "input": "Launch Visual Studio Code",
+  "steps": [
+    "Press Windows key",
+    "Type 'Visual Studio Code'",
+    "Press Enter"
+  ]
+}
+
+{
+  "input": "Open Notepad",
+  "steps": [
+    "Press Windows key",
+    "Type 'notepad'",
+    "Press Enter"
+  ]
+}
+
+{
+  "input": "Open Command Prompt",
+  "steps": [
+    "Press Windows key",
+    "Type 'cmd'",
+    "Press Enter"
+  ]
+}
+
+{
+  "input": "Open PowerShell",
+  "steps": [
+    "Press Windows key",
+    "Type 'powershell'",
+    "Press Enter"
+  ]
+}
+
+{
+  "input": "Launch Control Panel",
+  "steps": [
+    "Press Windows key",
+    "Type 'control panel'",
+    "Press Enter"
+  ]
+}
+
+{
+  "input": "Open Excel and insert a new worksheet",
+  "steps": [
+    "Press Windows key",
+    "Type 'excel'",
+    "Press Enter",
+    "Press Shift + F11"
+  ]
+}
+
+{
+  "input": "Open Chrome and go to incognito mode",
+  "steps": [
+    "Press Windows key",
+    "Type 'chrome'",
+    "Press Enter",
+    "Press Ctrl + Shift + N"
+  ]
+}
+
+{
+  "input": "Launch Word and bold selected text",
+  "steps": [
+    "Press Windows key",
+    "Type 'word'",
+    "Press Enter",
+    "Press Ctrl + B"
+  ]
+}
+
+{
+  "input": "Open Notepad and save the file",
+  "steps": [
+    "Press Windows key",
+    "Type 'notepad'",
+    "Press Enter",
+    "Press Ctrl + S"
+  ]
+}
+
+{
+  "input": "Open VS Code and run the command palette",
+  "steps": [
+    "Press Windows key",
+    "Type 'Visual Studio Code'",
+    "Press Enter",
+    "Press Ctrl + Shift + P"
+  ]
+}
+
+{
+  "input": "Minimize all windows",
+  "steps": [
+    "Press Windows + M"
+  ]
+}
+
+{
+  "input": "Show the desktop",
+  "steps": [
+    "Press Windows + D"
+  ]
+}
+
+{
+  "input": "Switch between open apps",
+  "steps": [
+    "Press Alt + Tab"
+  ]
+}
+
+{
+  "input": "Take a screenshot",
+  "steps": [
+    "Press Windows + Shift + S"
+  ]
+}
+
+{
+  "input": "Lock my PC",
+  "steps": [
+    "Press Windows + L"
+  ]
+}
+
+{
+  "input": "Open the Run dialog",
+  "steps": [
+    "Press Windows + R"
+  ]
+}
 
                 Be precise with coordinates, using the numbered grid on the screenshot. Row numbers (Y-axis) start from 0 at the top left and go down, and column numbers (X-axis) start from 0 at the top left and go right.
 
