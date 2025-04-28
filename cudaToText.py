@@ -13,6 +13,7 @@ Revision History:
 - 3/2/2025: Commented code
 - 3/12/2025: Adjusted GUI and adjusted model
 - 3/30/2025: Added task automation and moved mouse commands
+- 4/27/2025: Added Multi-Monitor Support to GUI
 
 Preconditions:
 - OpenAI's whisper library must be installed
@@ -40,6 +41,7 @@ import time  # Import time module for task tracking
 import subprocess  # Import subprocess module for running external scripts
 import webbrowser  # Import webbrowser module for opening websites
 import cv2  # Import cv2 for image processing
+from screeninfo import get_monitors # Import screeninfo to detect monitors dynamically
 
 try:
     import pyautogui  # Try to import pyautogui module for mouse and keyboard control
@@ -65,6 +67,7 @@ print("Model loaded!")  # Print a message indicating that the model has been loa
 # Global variables for tracking active tasks
 active_tasks = {}  # Dictionary to store active tasks and their status
 task_id_counter = 0  # Counter for generating unique task IDs
+selected_monitor_index = 1  # Default to monitor 1 if not selected yet
 
 # Function to update the task status display
 def update_task_status_display():
@@ -1035,6 +1038,54 @@ sidebar_content.pack(fill=tk.BOTH, expand=True)  # Pack the sidebar content to f
 app_title = tk.Label(sidebar_content, text="CommandFlow", font=("Segoe UI", 22, "bold"),   # Create app title label with modern typography
                     bg="#ffffff", fg="#212a38")  # White background, dark blue text
 app_title.pack(anchor=tk.W, pady=(0, 40))  # Pack the app title at the top of the sidebar with bottom padding
+
+# Create "Option" dropdown menu
+option_menu = tk.Menu(menubar, tearoff=0)  # Create a submenu under the menubar called "Option" with no tear-off
+menubar.add_cascade(label="Option", menu=option_menu)  # Attach the "Option" menu to the menubar
+
+# Create a global variable to track the selected monitor index
+selected_monitor_index = 1  # Default to Monitor 1 (because mss uses 1-based indexing)
+
+# Function to open a small window and let user select which monitor
+def select_monitor():
+    global selected_monitor_index  # So we can modify the global variable inside this function
+
+    monitors = get_monitors()  # Get a list of all detected monitors
+    monitor_window = tk.Toplevel(root)  # Create a new popup window (child of the main window)
+    monitor_window.title("Select Monitor")  # Set the title of the popup window
+    monitor_window.geometry("350x250")  # Set the size of the popup window
+    monitor_window.configure(bg="#1a2332")  # Set dark background color for the popup
+    monitor_window.transient(root)  # Keep the popup window on top of the main window
+    monitor_window.grab_set()  # Make the popup modal (force user to interact with it before continuing)
+
+    # Create a label instructing user what to do
+    tk.Label(monitor_window, text="Choose a monitor:", font=("Segoe UI", 12),
+             bg="#1a2332", fg="white").pack(pady=(20, 10))  # Add label at the top with some vertical padding
+
+    # Create an IntVar to store the selected monitor's index
+    monitor_var = tk.IntVar(value=1)  # Default selection is Monitor 1
+
+    # Add a radio button for each monitor detected
+    for i, monitor in enumerate(monitors[1:], start=1):  # Skip monitors[0] (which is "All Monitors" in mss)
+        monitor_name = f"Monitor {i}: {monitor.width}x{monitor.height} @ {monitor.x},{monitor.y}"  # Build readable text for each monitor
+        tk.Radiobutton(monitor_window, text=monitor_name, variable=monitor_var, value=i,
+                       font=("Segoe UI", 10), bg="#1a2332", fg="white",
+                       selectcolor="#2c3445", activebackground="#2c3445", activeforeground="white"
+                       ).pack(anchor="w", padx=20)  # Add radio button, left aligned, with padding
+
+    # Function to update selected monitor when user clicks Confirm
+    def confirm_monitor():
+        global selected_monitor_index  # Access the global variable
+        selected_monitor_index = monitor_var.get()  # Update the selected monitor index
+        monitor_window.destroy()  # Close the monitor selection popup
+
+    # Confirm button to save selection and close window
+    tk.Button(monitor_window, text="Confirm", command=confirm_monitor,
+              font=("Segoe UI", 10), bg="#2ecc71", fg="white", padx=10, pady=5
+              ).pack(pady=(10, 10))  # Add a green confirm button with padding
+
+# Add "Monitor" item to the "Option" dropdown menu
+option_menu.add_command(label="Monitor", command=select_monitor)  # When clicked, it will call select_monitor()
 
 # Use an absolute path for the microphone icon
 script_dir = os.path.dirname(os.path.abspath(__file__))  # Get the directory where the script is located

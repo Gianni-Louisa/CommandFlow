@@ -11,6 +11,7 @@ Revision History:
 - 2/14/2025: Initial creation of script (Gianni Louisa)
 - 2/27/2025: Modified prompt output handling (Christopher Gronewold)
 - 3/16/2025: Added few-shot example prompting (Connor Bennudriti)
+- 4/27/2025: Added Multi-Monitor Support screenshot (Tommy Lam)
 
 Preconditions:
 - Valid OpenAI API key must be provided
@@ -40,6 +41,7 @@ import cv2  # Image processing
 import numpy as np  # Numerical operations
 import time  # Time-related functions
 import os  # Operating system interactions
+import mss # Cross-platform screen capturing
 
 
 class ScreenPrompter:
@@ -148,6 +150,32 @@ class ScreenPrompter:
         b64_img = base64.b64encode(img_buffer).decode('utf-8')  # Convert to base64
         return b64_img
     
+    def capture_monitor_screenshot(self, monitor_index=1):
+        """
+        Capture a screenshot from a specific monitor.
+
+        @param monitor_index: The monitor number to capture (1-based index)
+        @return: Path to the saved screenshot file
+        """
+        with mss.mss() as sct:
+            monitors = sct.monitors  # List of monitors, monitors[0] is all monitors together
+            if monitor_index >= len(monitors):
+                raise ValueError(f"Monitor {monitor_index} does not exist. {len(monitors)-1} monitors available.")
+            
+            monitor = monitors[monitor_index]  # Pick monitor by index
+            screenshot = sct.grab(monitor)  # Capture monitor area
+            img = np.array(screenshot)  # Convert to numpy array (BGR)
+
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)  # Remove alpha channel if needed
+
+            # Save the screenshot
+            timestamp = int(time.time())
+            output_path = f"output/monitor_screenshot_{timestamp}.png"
+            cv2.imwrite(output_path, img)
+
+            print(f"Screenshot of Monitor {monitor_index} saved to {output_path}")
+            return output_path
+
     def createFewShotPrompts(self):
         """
         Create the prompts for the few-shot examples for various commonly used icons/images that need to be located on screen
@@ -392,4 +420,5 @@ if __name__ == '__main__':
 
     # Initialize and run ScreenPrompter
     screenPrompter = ScreenPrompter(API_KEY)  # Create instance with API key
-    screenPrompter.sendRequest(IMG_PATH, IMG_PROMPT)  # Send screenshot request
+    screenshot_path = screenPrompter.capture_monitor_screenshot(monitor_index=selected_monitor_index) # Capture a screenshot of the user-selected monitor and save it to a file
+    screenPrompter.sendRequest(screenshot_path, IMG_PROMPT) # Send screenshot request
